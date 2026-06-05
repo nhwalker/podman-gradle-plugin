@@ -62,6 +62,7 @@ PodmanPlugin                 ← entry point; registers extension + wires conven
           ├── PodmanRemoveImageTask
           ├── PodmanSaveTask
           ├── PodmanLoadTask
+          ├── PodmanCopyFromImageTask  ← create + cp + rm orchestration
           └── PodmanExecTask  ← generic escape hatch
 ```
 
@@ -278,15 +279,31 @@ All task types live in the package
 | `PodmanRemoveImageTask`      | `rmi`     | `images`, `force`, `all`                                                                  |
 | `PodmanSaveTask`             | `save`    | `image`, `outputFile`, `format`                                                           |
 | `PodmanLoadTask`             | `load`    | `inputFile`                                                                               |
+| `PodmanCopyFromImageTask`    | `create` + `cp` + `rm` | `image` *or* `container`, `paths`, `createOptions`, `copyOptions`, `removeContainer` |
 | `PodmanExecTask`             | *any*     | `arguments`                                                                               |
 
-### `PodmanTagTask` is special
+### Tasks that issue more than one podman command
 
-`podman tag` only accepts a single new name per invocation, but it's natural to
-want to apply several. So `PodmanTagTask` overrides the execution step and runs
-podman **once per entry** in `targetImages`, each as its own
-`podman tag <source> <target>` command (honoring `dryRun`/`ignoreExitValue` each
-time). All other tasks issue exactly one podman invocation.
+Most tasks run exactly one podman invocation. Two orchestrate several, building
+on the shared `runSubcommand(...)` primitive in `AbstractPodmanTask` (which still
+honors `dryRun`/`ignoreExitValue` for every call):
+
+- **`PodmanTagTask`** — `podman tag` only accepts a single new name per
+  invocation, so the task runs `podman tag <source> <target>` **once per entry**
+  in `targetImages`.
+
+- **`PodmanCopyFromImageTask`** — `podman cp` operates on *containers*, not
+  images. To extract files from an image the task:
+  1. runs `podman create <image>` and captures the new container id from stdout
+     (the container is created but never started);
+  2. runs `podman cp <container>:<source> <destination>` for **each** entry in
+     `paths`, creating each destination's parent directory first;
+  3. runs `podman rm -f <container>` in a `finally` block so the temporary
+     container is always cleaned up, even if a copy fails. (Cleanup ignores its
+     own exit code so it can never mask the real error.)
+
+  If you already have a container, set `container` instead of `image` and the
+  task skips the create/remove steps and copies straight from it.
 
 ---
 
@@ -402,6 +419,30 @@ tasks.register('saveImage', PodmanSaveTask) {
 
 tasks.register('loadImage', PodmanLoadTask) {
     inputFile = layout.buildDirectory.file('images/app.tar')
+}
+```
+
+### Copying files out of an image
+
+Extract build artifacts or config from an image without running it. The task
+creates a throwaway container from the image, copies each path out, and removes
+the container automatically:
+
+```groovy
+tasks.register('extractArtifacts', PodmanCopyFromImageTask) {
+    image = 'example/app:latest'
+    paths = [
+        // path inside the image : destination on the host
+        '/app/app.jar'    : layout.buildDirectory.file('extracted/app.jar').get().asFile.path,
+        '/etc/app/config' : layout.buildDirectory.dir('extracted/config').get().asFile.path,
+    ]
+    copyOptions = ['--archive']   // preserve uid/gid/permissions (optional)
+}
+
+// Or copy from a container that already exists (no create/remove happens):
+tasks.register('extractFromRunning', PodmanCopyFromImageTask) {
+    container = 'app'
+    paths = ['/var/log/app.log': layout.buildDirectory.file('logs/app.log').get().asFile.path]
 }
 ```
 
