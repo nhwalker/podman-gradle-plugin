@@ -470,6 +470,168 @@ tasks.register('buildImage', PodmanBuildTask) {
 
 ---
 
+## Managing images as dependencies
+
+Beyond the standalone tasks above, the plugin can model **images as variant-aware
+Gradle dependencies**, so an image built in one project (or build) can be consumed
+as the base image of another, transferred as an archive, aggregated for a push, or
+published to a Maven repository — all through Gradle's normal dependency machinery.
+
+Declare images in the `podman { images { } }` container. Each image automatically
+gets a build task (`build<Name>Image`), a reference-writing task
+(`write<Name>ImageReference`), an optional save task (`save<Name>Image` when
+`createArchive = true`), and the consumable configurations other projects resolve.
+
+```groovy
+podman {
+    images {
+        base {
+            containerfile = file('base/Containerfile')
+            tags          = ["com.example/base:${version}"]
+            createArchive = true            // also expose an archive (tar) variant
+            archiveFormat = 'oci-archive'   // default
+        }
+    }
+}
+```
+
+### How it is modeled
+
+An image is a **component variant**, exactly like the Java plugin's main/sources/javadoc
+jars:
+
+- **Module identity** is the Gradle project's own `group:name` coordinate (its implicit
+  capability). No custom capabilities are added — this is what lets composite builds
+  substitute it automatically.
+- **Which image** within a module is chosen by the `imageName` *attribute*; **which form**
+  (reference vs. archive) by `imageType` (and `archiveFormat`). So one project can publish
+  several images under one coordinate, each an attribute-selected variant with its own
+  artifact classifier.
+- The **reference** variant is a small file holding the image coordinate (`name:tag`) and,
+  by default, its digest (`name@sha256:…`) — a coordinate pointer; the image itself stays
+  in podman's local storage. The **archive** variant carries the actual `podman save` tar.
+
+The custom attributes live in `io.github.nhwalker.podman.gradle.dependency.PodmanAttributes`
+and are isolated from the JVM ecosystem by a required `ecosystem=podman-image` marker.
+
+### Base images (`FROM`)
+
+Declare a base image with `from(...)`. This wires build **ordering** (the base is built
+first) and injects the resolved base reference into the dependent build as a
+`--build-arg`, read at execution time:
+
+```groovy
+podman {
+    images {
+        base { tags = ["com.example/base:${version}"] }
+        app {
+            containerfile = file('app/Containerfile')   // ARG BASE_IMAGE / FROM ${BASE_IMAGE}
+            tags          = ["com.example/app:${version}"]
+
+            from 'BASE_IMAGE', images.base               // sibling image, same project
+            // from 'BASE_IMAGE', project(':base')       // another project, same build
+            // from 'BASE_IMAGE', 'com.example:base:1.0' // external coordinate / composite
+            // from 'BASE_IMAGE', project(':multi'), 'runtime'  // pick one of several images
+        }
+    }
+}
+```
+
+The consumer's `Containerfile` opts in to the injected value:
+
+```dockerfile
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+```
+
+### Archive transfer
+
+Set `createArchive = true` on the producer, then resolve the `archive` variant in the
+consumer and feed it to `PodmanLoadTask` (or a push):
+
+```groovy
+import io.github.nhwalker.podman.gradle.dependency.PodmanAttributes
+
+configurations {
+    incomingImage {
+        canBeConsumed = false; canBeResolved = true
+        attributes {
+            attribute(PodmanAttributes.ECOSYSTEM, PodmanAttributes.ECOSYSTEM_VALUE)
+            attribute(PodmanAttributes.IMAGE_TYPE, PodmanAttributes.IMAGE_TYPE_ARCHIVE)
+        }
+    }
+}
+dependencies { incomingImage project(':base') }
+
+tasks.register('loadBase', io.github.nhwalker.podman.gradle.tasks.PodmanLoadTask) {
+    inputFile = layout.file(provider { configurations.incomingImage.singleFile })
+}
+```
+
+### Aggregate & push
+
+An aggregator project depends on several image projects and iterates the resolved
+references (or archives):
+
+```groovy
+configurations {
+    allRefs {
+        canBeConsumed = false; canBeResolved = true
+        attributes {
+            attribute(PodmanAttributes.ECOSYSTEM, PodmanAttributes.ECOSYSTEM_VALUE)
+            attribute(PodmanAttributes.IMAGE_TYPE, PodmanAttributes.IMAGE_TYPE_REFERENCE)
+        }
+    }
+}
+dependencies { allRefs project(':base'); allRefs project(':app') }
+// a push task reads each file's first line (the coordinate)
+```
+
+### Publishing
+
+The plugin contributes one software component, `podman`, aggregating **every** image's
+variants. Attach it to a `MavenPublication`:
+
+```groovy
+plugins { id 'io.github.nhwalker.podman'; id 'maven-publish' }
+group = 'com.example'; version = '1.0'
+
+podman { images {
+    foo { tags = ['example/foo:1.0']; createArchive = true }
+    bar { tags = ['example/bar:1.0'] }
+} }
+
+publishing { publications { maven(MavenPublication) { from components.podman } } }
+```
+
+The whole project publishes as one module whose Gradle Module Metadata carries every
+image as an attribute-selected variant (`imageName × imageType`) with distinct artifact
+classifiers, so downstream builds resolve any individual image.
+
+### Composite builds
+
+Because identity is the project coordinate and image selection is an attribute, composite
+builds work with **no special wiring on either side and no `dependencySubstitution` rules**.
+Declare the base as an external coordinate; locally, `includeBuild` transparently
+substitutes it with the included project:
+
+```groovy
+// consumer settings.gradle
+includeBuild '../platform'
+// consumer build.gradle — identical whether resolved from a repo or substituted
+podman { images { app { from 'BASE_IMAGE', 'com.example:platform:1.0', 'runtime' } } }
+```
+
+### Low-level plumbing
+
+The DSL is built on public helpers in
+`io.github.nhwalker.podman.gradle.dependency.PodmanDependencies`
+(`registerSchema`, `referenceElements`, `archiveElements`, `baseImageBucket`,
+`resolvableReferences`) plus the `PodmanImageReferenceTask` type, so you can wire your own
+tasks into the same configurations without the `images { }` container.
+
+---
+
 ## Building from source
 
 ```bash
