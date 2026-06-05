@@ -3,6 +3,7 @@ package io.github.nhwalker.podman.gradle.tasks;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Input;
@@ -46,42 +47,14 @@ public abstract class PodmanTagTask extends AbstractPodmanTask {
 
     @Override
     public void execute() {
+        String source = getSourceImage().get();
         List<String> targets = getTargetImages().get();
         if (targets.isEmpty()) {
-            throw new org.gradle.api.InvalidUserDataException(
-                    "PodmanTagTask requires at least one target image");
+            throw new InvalidUserDataException("PodmanTagTask requires at least one target image");
         }
-        // Delegate to the base implementation for each target by temporarily
-        // narrowing the target list. Each call assembles its own command.
+        // podman tag accepts a single target per call, so issue one per target.
         for (String target : targets) {
-            runSingleTag(target);
-        }
-    }
-
-    private void runSingleTag(String target) {
-        List<String> command = new ArrayList<>();
-        command.add(getExecutable().get());
-        command.addAll(getGlobalOptions().get());
-        if (getConnection().isPresent()) {
-            command.add("--connection");
-            command.add(getConnection().get());
-        }
-        command.add("tag");
-        command.add(getSourceImage().get());
-        command.add(target);
-
-        String rendered = String.join(" ", command);
-        if (getDryRun().get()) {
-            getLogger().lifecycle("[dry-run] {}", rendered);
-            return;
-        }
-        getLogger().info("Executing: {}", rendered);
-        var result = getExecOperations().exec(spec -> {
-            spec.commandLine(command);
-            spec.setIgnoreExitValue(getIgnoreExitValue().get());
-        });
-        if (!getIgnoreExitValue().get()) {
-            result.assertNormalExitValue();
+            runSubcommand(List.of("tag", source, target), false);
         }
     }
 }

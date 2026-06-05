@@ -1,9 +1,11 @@
 package io.github.nhwalker.podman.gradle
 
 import io.github.nhwalker.podman.gradle.tasks.PodmanBuildTask
+import io.github.nhwalker.podman.gradle.tasks.PodmanCopyFromImageTask
 import io.github.nhwalker.podman.gradle.tasks.PodmanExecTask
 import io.github.nhwalker.podman.gradle.tasks.PodmanPushTask
 import io.github.nhwalker.podman.gradle.tasks.PodmanRunTask
+import org.gradle.api.InvalidUserDataException
 import org.gradle.testfixtures.ProjectBuilder
 import spock.lang.Specification
 
@@ -95,6 +97,34 @@ class PodmanPluginSpec extends Specification {
                 '-e', 'PROFILE=dev',
                 'example/app:latest', '--flag'
         ]
+    }
+
+    def "copy-from-image renders a cp command for an existing container"() {
+        given:
+        def task = project.tasks.register('copyOut', PodmanCopyFromImageTask) {
+            it.container.set('mycontainer')
+            it.copyOptions.set(['--archive'])
+            it.paths.set(['/app/app.jar': '/tmp/app.jar'])
+        }.get()
+
+        expect:
+        task.assembleCommand() == [
+                'podman', 'cp', '--archive',
+                'mycontainer:/app/app.jar', '/tmp/app.jar'
+        ]
+    }
+
+    def "copy-from-image requires exactly one of image or container"() {
+        given:
+        def task = project.tasks.register('copyOut', PodmanCopyFromImageTask) {
+            it.paths.set(['/a': '/tmp/a'])
+        }.get()
+
+        when:
+        task.execute()
+
+        then:
+        thrown(InvalidUserDataException)
     }
 
     def "push task renders tls-verify and destination"() {

@@ -88,6 +88,44 @@ exit 0
         !argsLog.exists()
     }
 
+    def "copies files out of an image via a temporary container"() {
+        given:
+        // A fake podman that prints a container id for `create` (so the task can
+        // resolve the container to copy from) and logs every invocation.
+        def cpFake = new File(testProjectDir, 'fake-podman-cp')
+        cpFake << """#!/usr/bin/env sh
+echo "\$@" >> '${argsLog.absolutePath}'
+if [ "\$1" = "create" ]; then echo "deadbeefcontainerid"; fi
+exit 0
+"""
+        cpFake.setExecutable(true)
+
+        def dest = new File(testProjectDir, 'out/app.jar').absolutePath
+        buildFile << """
+            plugins { id 'io.github.nhwalker.podman' }
+
+            podman { executable = '${cpFake.absolutePath}' }
+
+            tasks.register('extract', io.github.nhwalker.podman.gradle.tasks.PodmanCopyFromImageTask) {
+                image = 'example/app:latest'
+                copyOptions = ['--archive']
+                paths = ['/app/app.jar': '${dest}']
+            }
+        """
+
+        when:
+        def result = runner('extract').build()
+
+        then:
+        result.task(':extract').outcome == SUCCESS
+        def log = argsLog.readLines()
+        log[0] == 'create example/app:latest'
+        log[1] == "cp --archive deadbeefcontainerid:/app/app.jar ${dest}"
+        log[2] == 'rm -f deadbeefcontainerid'
+        // the destination's parent directory is created for podman to write into
+        new File(testProjectDir, 'out').isDirectory()
+    }
+
     def "is compatible with the configuration cache"() {
         given:
         buildFile << """

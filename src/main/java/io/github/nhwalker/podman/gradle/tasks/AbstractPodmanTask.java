@@ -102,19 +102,38 @@ public abstract class AbstractPodmanTask extends DefaultTask {
 
     @TaskAction
     public void execute() {
-        List<String> command = assembleCommand();
+        String captured = runSubcommand(buildSubcommand(), getCaptureOutput().get());
+        if (captured != null) {
+            capturedStandardOutput = captured;
+        }
+    }
+
+    /**
+     * Runs a single podman subcommand using the shared executable, global
+     * options and connection. Honors {@link #getDryRun()} (logs and skips) and
+     * {@link #getIgnoreExitValue()} (logs instead of failing on a non-zero exit).
+     *
+     * <p>This is the primitive that concrete tasks issuing more than one podman
+     * invocation (for example {@code tag} or {@code cp}) build on.
+     *
+     * @param subcommand   the subcommand and its arguments, e.g. {@code ["pull", "img"]}
+     * @param captureStdout when {@code true} the process standard output is
+     *                      captured and returned instead of streamed to the console
+     * @return the captured standard output when requested, or {@code null} when
+     *         not capturing or when skipped because of {@link #getDryRun()}
+     */
+    protected String runSubcommand(List<String> subcommand, boolean captureStdout) {
+        List<String> command = assembleCommandFor(subcommand);
         String rendered = String.join(" ", command);
 
         if (getDryRun().get()) {
             getLogger().lifecycle("[dry-run] {}", rendered);
-            return;
+            return null;
         }
 
         getLogger().info("Executing: {}", rendered);
 
-        ByteArrayOutputStream captureBuffer = getCaptureOutput().get()
-                ? new ByteArrayOutputStream()
-                : null;
+        ByteArrayOutputStream captureBuffer = captureStdout ? new ByteArrayOutputStream() : null;
 
         ExecResult result = getExecOperations().exec(spec -> {
             spec.commandLine(command);
@@ -124,19 +143,22 @@ public abstract class AbstractPodmanTask extends DefaultTask {
             }
         });
 
-        if (captureBuffer != null) {
-            capturedStandardOutput = captureBuffer.toString(StandardCharsets.UTF_8);
-        }
-
         if (getIgnoreExitValue().get()) {
             getLogger().info("{} exited with code {}", getExecutable().get(), result.getExitValue());
         } else {
             result.assertNormalExitValue();
         }
+
+        return captureBuffer != null ? captureBuffer.toString(StandardCharsets.UTF_8) : null;
     }
 
-    /** Assembles the full command line: executable, global options, connection, subcommand. */
+    /** Assembles the full command line for the task's primary subcommand. */
     final List<String> assembleCommand() {
+        return assembleCommandFor(buildSubcommand());
+    }
+
+    /** Prepends executable, global options and connection to {@code subcommand}. */
+    final List<String> assembleCommandFor(List<String> subcommand) {
         List<String> command = new ArrayList<>();
         command.add(getExecutable().get());
         command.addAll(getGlobalOptions().get());
@@ -144,7 +166,7 @@ public abstract class AbstractPodmanTask extends DefaultTask {
             command.add("--connection");
             command.add(getConnection().get());
         }
-        command.addAll(buildSubcommand());
+        command.addAll(subcommand);
         return command;
     }
 
