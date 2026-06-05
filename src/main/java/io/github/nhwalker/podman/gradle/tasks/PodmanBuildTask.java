@@ -1,8 +1,14 @@
 package io.github.nhwalker.podman.gradle.tasks;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
@@ -12,9 +18,12 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
+
+import io.github.nhwalker.podman.gradle.dsl.BaseImageReference;
 
 /**
  * Builds an image with {@code podman build}.
@@ -73,6 +82,15 @@ public abstract class PodmanBuildTask extends AbstractPodmanTask {
     @Input
     public abstract ListProperty<String> getExtraArguments();
 
+    /**
+     * Base images this build depends on. Each entry injects a {@code --build-arg
+     * <argName>=<reference>} read at execution time from the resolved reference
+     * file, and carries the producer task dependency so the base image is built
+     * first. Normally populated by the {@code images { }} DSL via {@code from(...)}.
+     */
+    @Nested
+    public abstract ListProperty<BaseImageReference> getBaseImages();
+
     @SuppressWarnings("this-escape")
     public PodmanBuildTask() {
         getContextDirectory().convention(getProject().getLayout().getProjectDirectory());
@@ -84,6 +102,14 @@ public abstract class PodmanBuildTask extends AbstractPodmanTask {
     protected List<String> buildSubcommand() {
         List<String> args = new ArrayList<>();
         args.add("build");
+
+        // Base-image references first so explicit user build-args can override them.
+        for (BaseImageReference base : getBaseImages().get()) {
+            String ref = readReference(base);
+            if (ref != null) {
+                addOption(args, "--build-arg", base.getArgName().get() + "=" + ref);
+            }
+        }
 
         for (String tag : getTags().get()) {
             addOption(args, "-t", tag);
@@ -106,4 +132,23 @@ public abstract class PodmanBuildTask extends AbstractPodmanTask {
         args.add(getContextDirectory().get().getAsFile().getAbsolutePath());
         return args;
     }
+
+    /** Reads the first line (the image coordinate) of a base image's resolved reference file. */
+    private static String readReference(BaseImageReference base) {
+        Set<File> files = base.getReferenceFiles().getFiles();
+        if (files.isEmpty()) {
+            return null;
+        }
+        File file = files.iterator().next();
+        try {
+            return Files.readAllLines(file.toPath(), StandardCharsets.UTF_8).stream()
+                    .map(String::strip)
+                    .filter(line -> !line.isEmpty())
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read base image reference " + file, e);
+        }
+    }
 }
+
