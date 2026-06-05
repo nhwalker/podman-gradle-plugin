@@ -1,0 +1,52 @@
+plugins {
+    id 'java-gradle-plugin'
+    id 'groovy'
+    id 'maven-publish'
+}
+
+group = 'io.github.nhwalker'
+version = '0.1.0'
+description = 'Gradle plugin contributing tasks for working with the podman CLI'
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    // Target a broadly compatible bytecode level while still building on newer JDKs.
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    withSourcesJar()
+}
+
+dependencies {
+    // Spock + Gradle TestKit for functional verification of the plugin.
+    testImplementation platform('org.spockframework:spock-bom:2.3-groovy-4.0')
+    testImplementation 'org.spockframework:spock-core'
+    testImplementation gradleTestKit()
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+gradlePlugin {
+    plugins {
+        podman {
+            id = 'io.github.nhwalker.podman'
+            implementationClass = 'io.github.nhwalker.podman.gradle.PodmanPlugin'
+            displayName = 'Podman Gradle Plugin'
+            description = project.description
+        }
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-Xlint:all'
+}
