@@ -654,6 +654,10 @@ container {
 }
 ```
 
+When the `eclipse` plugin is also applied, `eclipseClasspath` depends on the image
+build (and thus the generator), so regenerating the Eclipse classpath builds the
+images and the generated source folder exists for the IDE to pick up.
+
 For a project named `fixture` this generates `com.example.FixtureImages`:
 
 ```java

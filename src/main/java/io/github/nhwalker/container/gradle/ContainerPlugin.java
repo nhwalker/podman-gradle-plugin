@@ -116,6 +116,15 @@ public class ContainerPlugin implements Plugin<Project> {
 
         // (Re)generate the interface whenever an image is built.
         buildTasks.forEach(buildTask -> buildTask.configure(t -> t.finalizedBy(generateTask)));
+
+        // With the eclipse plugin, regenerating the classpath builds the images (which
+        // refreshes the refs); depending on the generator too guarantees the generated
+        // source folder exists before the .classpath that references it is written.
+        project.getPluginManager().withPlugin("eclipse", applied ->
+                project.getTasks().named("eclipseClasspath").configure(t -> {
+                    t.dependsOn(generateTask);
+                    buildTasks.forEach(t::dependsOn);
+                }));
     }
 
     private TaskProvider<ContainerBuildTask> registerImage(Project project, ContainerImage image,

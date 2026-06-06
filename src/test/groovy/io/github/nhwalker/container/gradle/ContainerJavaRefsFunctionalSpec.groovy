@@ -101,6 +101,32 @@ exit 0
         result.task(':compileJava').outcome == SUCCESS
     }
 
+    def "eclipseClasspath builds the images and generates the interface"() {
+        given:
+        buildFile << """
+            plugins { id 'java'; id 'eclipse'; id 'io.github.nhwalker.container' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                generateJavaRefs = true
+                images { app { tags = ['example/app:1.0'] } }
+            }
+        """
+
+        when:
+        def result = runner('eclipseClasspath').build()
+
+        then: 'regenerating the classpath builds the image and refreshes the refs'
+        result.task(':buildAppImage').outcome == SUCCESS
+        result.task(':generateImageReferences').outcome == SUCCESS
+        result.task(':eclipseClasspath').outcome == SUCCESS
+
+        and: 'the generated source folder is on the eclipse classpath'
+        new File(dir,
+                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java').exists()
+        new File(dir, '.classpath').text.contains('build/generated/sources/containerImageRefs/java/main')
+    }
+
     def "no interface is generated unless generateJavaRefs is enabled"() {
         given:
         buildFile << """
