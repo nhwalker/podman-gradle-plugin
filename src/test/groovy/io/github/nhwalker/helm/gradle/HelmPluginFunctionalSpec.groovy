@@ -106,6 +106,54 @@ exit 0
         argsLog.readLines().any { it.startsWith('package ') && it.contains('--version 1.0.0') }
     }
 
+    def "injects build-time pre-values into Chart.yaml and values.yaml"() {
+        given:
+        def chartDir = new File(testProjectDir, 'src/main/helm/api')
+        chartDir.mkdirs()
+        // Mixed whitespace, plus an unset placeholder that must be left untouched.
+        new File(chartDir, 'Chart.yaml') << '''apiVersion: v2
+name: api
+version: {{ .PreValues.ChartVersion }}
+appVersion: "{{.PreValues.AppVersion}}"
+'''
+        new File(chartDir, 'values.yaml') << '''image:
+  tag: {{ .PreValues.AppTag }}
+unset: {{ .PreValues.Missing }}
+'''
+        buildFile << """
+            plugins { id 'io.github.nhwalker.helm' }
+
+            helm {
+                executable = '${fakeBin.absolutePath}'
+                charts {
+                    api {
+                        preValues = ['ChartVersion': '9.9.9', 'AppVersion': '1.0', 'AppTag': 'sha-abc']
+                    }
+                }
+            }
+        """
+
+        when:
+        def result = runner('packageApiChart').build()
+
+        then:
+        result.task(':stageApiChart').outcome == SUCCESS
+        result.task(':packageApiChart').outcome == SUCCESS
+
+        and: 'placeholders are replaced (whitespace inside the braces ignored)'
+        def stagedChart = new File(testProjectDir, 'build/helm/api/staged/Chart.yaml').text
+        def stagedValues = new File(testProjectDir, 'build/helm/api/staged/values.yaml').text
+        stagedChart.contains('version: 9.9.9')
+        stagedChart.contains('appVersion: "1.0"')
+        stagedValues.contains('tag: sha-abc')
+
+        and: 'an unset placeholder is left untouched'
+        stagedValues.contains('{{ .PreValues.Missing }}')
+
+        and: 'the source chart is not modified'
+        new File(chartDir, 'Chart.yaml').text.contains('{{ .PreValues.ChartVersion }}')
+    }
+
     def "lints a declared chart"() {
         given:
         writeChart('src/main/helm/api', 'api')

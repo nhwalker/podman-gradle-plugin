@@ -9,13 +9,13 @@ import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.provider.Provider;
-import org.gradle.api.tasks.Sync;
 
 import io.github.nhwalker.helm.gradle.dependency.HelmDependencies;
 import io.github.nhwalker.helm.gradle.dsl.HelmChart;
 import io.github.nhwalker.helm.gradle.tasks.AbstractHelmTask;
 import io.github.nhwalker.helm.gradle.tasks.HelmLintTask;
 import io.github.nhwalker.helm.gradle.tasks.HelmPackageTask;
+import io.github.nhwalker.helm.gradle.tasks.HelmStageTask;
 
 /**
  * Registers the {@code helm} extension, applies its configuration as conventions
@@ -75,20 +75,22 @@ public class HelmPlugin implements Plugin<Project> {
         ProjectLayout layout = project.getLayout();
         Provider<Directory> stagedDir = layout.getBuildDirectory().dir(HelmChart.stagedChartPath(name));
 
-        // Assemble the chart plus its resolved subchart archives into a staging dir,
-        // keeping the user's source tree pristine and handling subcharts uniformly.
-        var stageTask = project.getTasks().register(HelmChart.stageTaskName(name), Sync.class, t -> {
+        // Assemble the chart plus its resolved subchart archives into a staging dir
+        // (injecting build-time pre-values), keeping the user's source tree pristine
+        // and handling subcharts uniformly. Downstream tasks read the staged copy.
+        var stageTask = project.getTasks().register(HelmChart.stageTaskName(name), HelmStageTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Stages the '" + name + "' chart and its subchart dependencies.");
-            t.into(stagedDir);
-            t.from(chart.getChartDirectory());
-            t.from(chart.getSubchartFiles(), spec -> spec.into("charts"));
+            t.getChartDirectory().convention(chart.getChartDirectory());
+            t.getSubchartArchives().from(chart.getSubchartFiles());
+            t.getPreValues().convention(chart.getPreValues());
+            t.getStagedDirectory().convention(stagedDir);
         });
+        Provider<Directory> staged = stageTask.flatMap(HelmStageTask::getStagedDirectory);
 
         var packageTask = project.getTasks().register(HelmChart.packageTaskName(name), HelmPackageTask.class, t -> {
             t.setDescription("Packages the '" + name + "' chart with helm package.");
-            t.dependsOn(stageTask);
-            t.getChartDirectory().convention(stagedDir);
+            t.getChartDirectory().convention(staged);
             t.getChartVersion().convention(chart.getChartVersion());
             t.getAppVersion().convention(chart.getAppVersion());
             t.getUpdateDependencies().convention(chart.getUpdateDependencies());
@@ -98,8 +100,7 @@ public class HelmPlugin implements Plugin<Project> {
         if (chart.getLint().get()) {
             project.getTasks().register(HelmChart.lintTaskName(name), HelmLintTask.class, t -> {
                 t.setDescription("Lints the '" + name + "' chart with helm lint.");
-                t.dependsOn(stageTask);
-                t.getChartDirectory().convention(stagedDir);
+                t.getChartDirectory().convention(staged);
             });
         }
 

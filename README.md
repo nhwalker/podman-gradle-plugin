@@ -689,6 +689,40 @@ helm {
 (`chartDirectory` defaults to `src/main/helm/<name>`.) This yields the tasks
 `stageApiChart`, `packageApiChart`, and `lintApiChart`.
 
+### Build-time value injection (`preValues`)
+
+`preValues` is a key/value map (the helm counterpart of podman's `buildArgs`).
+During staging — before `helm package`/`helm lint` run — each placeholder of the
+form <code>{{ .PreValues.&lt;name&gt; }}</code> (whitespace inside the braces is
+ignored) in the chart's `Chart.yaml` and `values.yaml` is replaced with the
+matching value. Substitution happens on the staged copy, so your source tree is
+never modified, and the map is a tracked input so changing a value re-stages the
+chart. Placeholders whose name is not in the map are left untouched.
+
+```groovy
+helm {
+    charts {
+        api {
+            preValues = [
+                'ChartVersion': project.version.toString(),
+                'AppTag'      : 'sha-abc123',
+            ]
+        }
+    }
+}
+```
+
+```yaml
+# src/main/helm/api/Chart.yaml
+apiVersion: v2
+name: api
+version: {{ .PreValues.ChartVersion }}     # → version: 1.0.0
+
+# src/main/helm/api/values.yaml
+image:
+  tag: {{ .PreValues.AppTag }}             # → tag: sha-abc123
+```
+
 ### Sharing charts as dependencies
 
 Charts are modeled with the same "one module, several attribute-selected variants"

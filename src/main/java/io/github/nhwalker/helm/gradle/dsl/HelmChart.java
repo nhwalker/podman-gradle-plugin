@@ -9,6 +9,7 @@ import org.gradle.api.artifacts.DependencyScopeConfiguration;
 import org.gradle.api.artifacts.ResolvableConfiguration;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 
 import io.github.nhwalker.helm.gradle.dependency.HelmDependencies;
@@ -72,6 +73,20 @@ public abstract class HelmChart implements Named {
 
     /** Update {@code Chart.yaml} dependencies before packaging ({@code -u}). Defaults to {@code false}. */
     public abstract Property<Boolean> getUpdateDependencies();
+
+    /**
+     * Build-time values injected before packaging. Each entry replaces the
+     * placeholder <code>{{ .PreValues.&lt;key&gt; }}</code> (whitespace inside the
+     * braces is ignored) wherever it appears in the chart's {@code Chart.yaml} and
+     * {@code values.yaml}:
+     * <pre>
+     * helm { charts { api {
+     *     preValues = ['ChartVersion': project.version.toString(), 'AppTag': 'abc123']
+     * } } }
+     * </pre>
+     * with {@code Chart.yaml} containing {@code version: {{ .PreValues.ChartVersion }}}.
+     */
+    public abstract MapProperty<String, String> getPreValues();
 
     /** The resolved subchart archives declared via {@code from(...)}. Staged into {@code charts/}. */
     public abstract ConfigurableFileCollection getSubchartFiles();
