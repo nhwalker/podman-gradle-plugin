@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.io.File;
 import java.io.IOException;
@@ -23,20 +23,20 @@ import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 
-import io.github.nhwalker.podman.gradle.dsl.BaseImageReference;
+import io.github.nhwalker.container.gradle.dsl.BaseImageReference;
 
 /**
  * Builds an image with {@code podman build}.
  *
  * <pre>
- * tasks.register('buildImage', PodmanBuildTask) {
+ * tasks.register('buildImage', ContainerBuildTask) {
  *     contextDirectory = layout.projectDirectory.dir('src/main/docker')
  *     tags = ['example/app:latest', 'example/app:1.0']
  *     buildArgs = ['VERSION': version.toString()]
  * }
  * </pre>
  */
-public abstract class PodmanBuildTask extends AbstractPodmanTask {
+public abstract class ContainerBuildTask extends AbstractContainerTask {
 
     /** Build context directory. Defaults to the project directory. */
     @Internal
@@ -92,7 +92,7 @@ public abstract class PodmanBuildTask extends AbstractPodmanTask {
     public abstract ListProperty<BaseImageReference> getBaseImages();
 
     @SuppressWarnings("this-escape")
-    public PodmanBuildTask() {
+    public ContainerBuildTask() {
         getContextDirectory().convention(getProject().getLayout().getProjectDirectory());
         getNoCache().convention(false);
         getPull().convention(false);

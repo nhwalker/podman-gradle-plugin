@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle;
+package io.github.nhwalker.container.gradle;
 
 import javax.inject.Inject;
 
@@ -10,57 +10,57 @@ import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.provider.Provider;
 
-import io.github.nhwalker.podman.gradle.dependency.PodmanAttributes;
-import io.github.nhwalker.podman.gradle.dependency.PodmanDependencies;
-import io.github.nhwalker.podman.gradle.dsl.PodmanImage;
-import io.github.nhwalker.podman.gradle.tasks.AbstractPodmanTask;
-import io.github.nhwalker.podman.gradle.tasks.PodmanBuildTask;
-import io.github.nhwalker.podman.gradle.tasks.PodmanImageReferenceTask;
-import io.github.nhwalker.podman.gradle.tasks.PodmanSaveTask;
+import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
+import io.github.nhwalker.container.gradle.dependency.ContainerDependencies;
+import io.github.nhwalker.container.gradle.dsl.ContainerImage;
+import io.github.nhwalker.container.gradle.tasks.AbstractContainerTask;
+import io.github.nhwalker.container.gradle.tasks.ContainerBuildTask;
+import io.github.nhwalker.container.gradle.tasks.ContainerImageReferenceTask;
+import io.github.nhwalker.container.gradle.tasks.ContainerSaveTask;
 
 /**
- * Registers the {@code podman} extension, applies its configuration as conventions
- * to every podman task, and turns each declared image into build/reference/save
+ * Registers the {@code container} extension, applies its configuration as conventions
+ * to every container task, and turns each declared image into build/reference/save
  * tasks plus the consumable configurations and software-component variants used to
  * share images as dependencies between projects.
  *
  * <p>Apply with:
  * <pre>
- * plugins { id 'io.github.nhwalker.podman' }
+ * plugins { id 'io.github.nhwalker.container' }
  * </pre>
  */
-public class PodmanPlugin implements Plugin<Project> {
+public class ContainerPlugin implements Plugin<Project> {
 
     /** The name of the project extension contributed by this plugin. */
-    public static final String EXTENSION_NAME = "podman";
+    public static final String EXTENSION_NAME = "container";
 
-    /** The task group applied to every podman task. */
-    public static final String TASK_GROUP = "podman";
+    /** The task group applied to every container task. */
+    public static final String TASK_GROUP = "container";
 
     /** The name of the software component aggregating this project's image variants. */
-    public static final String COMPONENT_NAME = "podman";
+    public static final String COMPONENT_NAME = "container";
 
     private final SoftwareComponentFactory softwareComponentFactory;
 
     @Inject
-    public PodmanPlugin(SoftwareComponentFactory softwareComponentFactory) {
+    public ContainerPlugin(SoftwareComponentFactory softwareComponentFactory) {
         this.softwareComponentFactory = softwareComponentFactory;
     }
 
     @Override
     public void apply(Project project) {
-        PodmanExtension extension = project.getExtensions()
-                .create(EXTENSION_NAME, PodmanExtension.class);
+        ContainerExtension extension = project.getExtensions()
+                .create(EXTENSION_NAME, ContainerExtension.class);
         extension.getExecutable().convention("podman");
 
-        project.getTasks().withType(AbstractPodmanTask.class).configureEach(task -> {
+        project.getTasks().withType(AbstractContainerTask.class).configureEach(task -> {
             task.setGroup(TASK_GROUP);
             task.getExecutable().convention(extension.getExecutable());
             task.getGlobalOptions().convention(extension.getGlobalOptions());
             task.getConnection().convention(extension.getConnection());
         });
 
-        PodmanDependencies.registerSchema(project);
+        ContainerDependencies.registerSchema(project);
 
         // One component aggregates every image's variants (one module/coordinate),
         // the same way the java component carries the main + sources/javadoc jars.
@@ -72,16 +72,16 @@ public class PodmanPlugin implements Plugin<Project> {
         project.afterEvaluate(p -> extension.getImages().forEach(image -> registerImage(p, image, component)));
     }
 
-    private void registerImage(Project project, PodmanImage image, AdhocComponentWithVariants component) {
+    private void registerImage(Project project, ContainerImage image, AdhocComponentWithVariants component) {
         String name = image.getName();
         if (image.getTags().getOrElse(java.util.List.of()).isEmpty()) {
             throw new InvalidUserDataException(
-                    "podman image '" + name + "' must declare at least one tag");
+                    "container image '" + name + "' must declare at least one tag");
         }
         ProjectLayout layout = project.getLayout();
         Provider<String> primaryTag = image.getTags().map(tags -> tags.get(0));
 
-        var buildTask = project.getTasks().register(PodmanImage.buildTaskName(name), PodmanBuildTask.class, t -> {
+        var buildTask = project.getTasks().register(ContainerImage.buildTaskName(name), ContainerBuildTask.class, t -> {
             t.getContainerfile().convention(image.getContainerfile());
             t.getContextDirectory().convention(image.getContextDirectory());
             t.getTags().convention(image.getTags());
@@ -95,31 +95,31 @@ public class PodmanPlugin implements Plugin<Project> {
         });
 
         var referenceTask = project.getTasks().register(
-                PodmanImage.referenceTaskName(name), PodmanImageReferenceTask.class, t -> {
+                ContainerImage.referenceTaskName(name), ContainerImageReferenceTask.class, t -> {
                     t.dependsOn(buildTask);
                     t.getImageReference().convention(primaryTag);
                     t.getIncludeDigest().convention(image.getIncludeDigest());
                     t.getReferenceFile().convention(
-                            layout.getBuildDirectory().file(PodmanImage.referenceFilePath(name)));
+                            layout.getBuildDirectory().file(ContainerImage.referenceFilePath(name)));
                 });
 
-        var referenceElements = PodmanDependencies.referenceElements(project,
-                PodmanImage.referenceElementsName(name), name,
-                referenceTask.flatMap(PodmanImageReferenceTask::getReferenceFile), referenceTask);
+        var referenceElements = ContainerDependencies.referenceElements(project,
+                ContainerImage.referenceElementsName(name), name,
+                referenceTask.flatMap(ContainerImageReferenceTask::getReferenceFile), referenceTask);
         component.addVariantsFromConfiguration(referenceElements.get(), details -> { });
 
         if (image.getCreateArchive().get()) {
-            String format = image.getArchiveFormat().getOrElse(PodmanAttributes.ARCHIVE_FORMAT_OCI);
-            var saveTask = project.getTasks().register(PodmanImage.saveTaskName(name), PodmanSaveTask.class, t -> {
+            String format = image.getArchiveFormat().getOrElse(ContainerAttributes.ARCHIVE_FORMAT_OCI);
+            var saveTask = project.getTasks().register(ContainerImage.saveTaskName(name), ContainerSaveTask.class, t -> {
                 t.dependsOn(buildTask);
                 t.getImage().convention(primaryTag);
                 t.getFormat().convention(image.getArchiveFormat());
                 t.getOutputFile().convention(
-                        layout.getBuildDirectory().file(PodmanImage.archiveFilePath(name, format)));
+                        layout.getBuildDirectory().file(ContainerImage.archiveFilePath(name, format)));
             });
-            var archiveElements = PodmanDependencies.archiveElements(project,
-                    PodmanImage.archiveElementsName(name), name, format,
-                    saveTask.flatMap(PodmanSaveTask::getOutputFile), saveTask);
+            var archiveElements = ContainerDependencies.archiveElements(project,
+                    ContainerImage.archiveElementsName(name), name, format,
+                    saveTask.flatMap(ContainerSaveTask::getOutputFile), saveTask);
             component.addVariantsFromConfiguration(archiveElements.get(), details -> { });
         }
     }

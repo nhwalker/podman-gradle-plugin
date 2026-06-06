@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,13 +13,13 @@ import org.gradle.api.tasks.OutputFile;
  * Exports an image to a tar archive with {@code podman save}.
  *
  * <pre>
- * tasks.register('saveImage', PodmanSaveTask) {
+ * tasks.register('saveImage', ContainerSaveTask) {
  *     image = 'example/app:latest'
  *     outputFile = layout.buildDirectory.file('images/app.tar')
  * }
  * </pre>
  */
-public abstract class PodmanSaveTask extends AbstractPodmanTask {
+public abstract class ContainerSaveTask extends AbstractContainerTask {
 
     /** The image to export. Required. */
     @Input

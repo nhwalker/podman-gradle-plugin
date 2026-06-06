@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.dsl;
+package io.github.nhwalker.container.gradle.dsl;
 
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.provider.Property;
@@ -9,7 +9,7 @@ import org.gradle.api.tasks.PathSensitivity;
 
 /**
  * A single base-image dependency of a build, used as a {@code @Nested} input on
- * {@link io.github.nhwalker.podman.gradle.tasks.PodmanBuildTask}.
+ * {@link io.github.nhwalker.container.gradle.tasks.ContainerBuildTask}.
  *
  * <p>It pairs the {@code --build-arg} name to inject with the resolved reference
  * file(s) of the base image. Declaring {@link #getReferenceFiles()} as

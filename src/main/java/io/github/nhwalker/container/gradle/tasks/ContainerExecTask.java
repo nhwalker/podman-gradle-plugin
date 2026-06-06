@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -7,16 +7,16 @@ import org.gradle.api.provider.ListProperty;
 import org.gradle.api.tasks.Input;
 
 /**
- * Runs an arbitrary podman subcommand. Use this as an escape hatch for podman
- * features that do not have a dedicated task.
+ * Runs an arbitrary container engine subcommand. Use this as an escape hatch for
+ * engine features that do not have a dedicated task.
  *
  * <pre>
- * tasks.register('podmanImages', PodmanExecTask) {
+ * tasks.register('containerImages', ContainerExecTask) {
  *     arguments = ['images', '--format', '{{.Repository}}:{{.Tag}}']
  * }
  * </pre>
  */
-public abstract class PodmanExecTask extends AbstractPodmanTask {
+public abstract class ContainerExecTask extends AbstractContainerTask {
 
     /** The subcommand and its arguments, e.g. {@code ["images", "-a"]}. */
     @Input

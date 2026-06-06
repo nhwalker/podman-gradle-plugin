@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle
+package io.github.nhwalker.container.gradle
 
 import org.gradle.testkit.runner.GradleRunner
 import spock.lang.Specification
@@ -11,7 +11,7 @@ import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
  * PATH records the arguments it was invoked with, so the full task execution
  * path (injection, exec, exit handling) is exercised without a real podman.
  */
-class PodmanPluginFunctionalSpec extends Specification {
+class ContainerPluginFunctionalSpec extends Specification {
 
     @TempDir
     File testProjectDir
@@ -42,17 +42,17 @@ exit 0
                 .forwardOutput()
     }
 
-    def "runs a PodmanExecTask against the configured executable"() {
+    def "runs a ContainerExecTask against the configured executable"() {
         given:
         buildFile << """
-            plugins { id 'io.github.nhwalker.podman' }
+            plugins { id 'io.github.nhwalker.container' }
 
-            podman {
+            container {
                 executable = '${fakeBin.absolutePath}'
                 globalOptions = ['--log-level', 'info']
             }
 
-            tasks.register('listImages', io.github.nhwalker.podman.gradle.tasks.PodmanExecTask) {
+            tasks.register('listImages', io.github.nhwalker.container.gradle.tasks.ContainerExecTask) {
                 arguments = ['images', '-a']
             }
         """
@@ -68,11 +68,11 @@ exit 0
     def "dryRun prints the command without invoking podman"() {
         given:
         buildFile << """
-            plugins { id 'io.github.nhwalker.podman' }
+            plugins { id 'io.github.nhwalker.container' }
 
-            podman { executable = '${fakeBin.absolutePath}' }
+            container { executable = '${fakeBin.absolutePath}' }
 
-            tasks.register('buildImage', io.github.nhwalker.podman.gradle.tasks.PodmanBuildTask) {
+            tasks.register('buildImage', io.github.nhwalker.container.gradle.tasks.ContainerBuildTask) {
                 tags = ['example/app:latest']
                 dryRun = true
             }
@@ -102,11 +102,11 @@ exit 0
 
         def dest = new File(testProjectDir, 'out/app.jar').absolutePath
         buildFile << """
-            plugins { id 'io.github.nhwalker.podman' }
+            plugins { id 'io.github.nhwalker.container' }
 
-            podman { executable = '${cpFake.absolutePath}' }
+            container { executable = '${cpFake.absolutePath}' }
 
-            tasks.register('extract', io.github.nhwalker.podman.gradle.tasks.PodmanCopyFromImageTask) {
+            tasks.register('extract', io.github.nhwalker.container.gradle.tasks.ContainerCopyFromImageTask) {
                 image = 'example/app:latest'
                 copyOptions = ['--archive']
                 paths = ['/app/app.jar': '${dest}']
@@ -129,11 +129,11 @@ exit 0
     def "is compatible with the configuration cache"() {
         given:
         buildFile << """
-            plugins { id 'io.github.nhwalker.podman' }
+            plugins { id 'io.github.nhwalker.container' }
 
-            podman { executable = '${fakeBin.absolutePath}' }
+            container { executable = '${fakeBin.absolutePath}' }
 
-            tasks.register('ping', io.github.nhwalker.podman.gradle.tasks.PodmanExecTask) {
+            tasks.register('ping', io.github.nhwalker.container.gradle.tasks.ContainerExecTask) {
                 arguments = ['version']
             }
         """

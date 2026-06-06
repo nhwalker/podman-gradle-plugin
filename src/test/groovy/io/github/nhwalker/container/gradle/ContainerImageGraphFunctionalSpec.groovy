@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle
+package io.github.nhwalker.container.gradle
 
 import org.gradle.testkit.runner.GradleRunner
 import spock.lang.Specification
@@ -14,7 +14,7 @@ import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
  * A fake `podman` script logs every invocation (and echoes a digest for
  * `image inspect`) so the full resolution + execution path runs without podman.
  */
-class PodmanImageGraphFunctionalSpec extends Specification {
+class ContainerImageGraphFunctionalSpec extends Specification {
 
     @TempDir
     File dir
@@ -22,7 +22,7 @@ class PodmanImageGraphFunctionalSpec extends Specification {
     File argsLog
 
     /** Writes a fake podman into {@code root} logging to {@code argsLog}; returns it. */
-    private File fakePodman(File root) {
+    private File fakeContainer(File root) {
         def bin = new File(root, 'fake-podman')
         bin << """#!/usr/bin/env sh
 echo "\$@" >> '${argsLog.absolutePath}'
@@ -63,21 +63,21 @@ exit 0
 
     def "builds base before app and injects the resolved base reference as a build-arg"() {
         given:
-        def fake = fakePodman(dir)
+        def fake = fakeContainer(dir)
         new File(dir, 'settings.gradle') << "rootProject.name='graph'\ninclude ':base', ':app'\n"
 
         new File(dir, 'base').mkdirs()
         new File(dir, 'base/build.gradle') << """
-            plugins { id 'io.github.nhwalker.podman' }
-            podman {
+            plugins { id 'io.github.nhwalker.container' }
+            container {
                 executable = '${fake.absolutePath}'
                 images { base { tags = ['base:1'] } }
             }
         """
         new File(dir, 'app').mkdirs()
         new File(dir, 'app/build.gradle') << """
-            plugins { id 'io.github.nhwalker.podman' }
-            podman {
+            plugins { id 'io.github.nhwalker.container' }
+            container {
                 executable = '${fake.absolutePath}'
                 images { app { tags = ['app:1']; from 'BASE_IMAGE', project(':base') } }
             }
@@ -99,17 +99,17 @@ exit 0
 
     def "the image graph is configuration-cache compatible"() {
         given:
-        def fake = fakePodman(dir)
+        def fake = fakeContainer(dir)
         new File(dir, 'settings.gradle') << "rootProject.name='graph'\ninclude ':base', ':app'\n"
         new File(dir, 'base').mkdirs()
         new File(dir, 'base/build.gradle') << """
-            plugins { id 'io.github.nhwalker.podman' }
-            podman { executable = '${fake.absolutePath}'; images { base { tags = ['base:1'] } } }
+            plugins { id 'io.github.nhwalker.container' }
+            container { executable = '${fake.absolutePath}'; images { base { tags = ['base:1'] } } }
         """
         new File(dir, 'app').mkdirs()
         new File(dir, 'app/build.gradle') << """
-            plugins { id 'io.github.nhwalker.podman' }
-            podman { executable = '${fake.absolutePath}'
+            plugins { id 'io.github.nhwalker.container' }
+            container { executable = '${fake.absolutePath}'
                      images { app { tags = ['app:1']; from 'BASE_IMAGE', project(':base') } } }
         """
 
@@ -124,20 +124,20 @@ exit 0
 
     def "publishes one module with a variant per image and form, with distinct classifiers"() {
         given:
-        def fake = fakePodman(dir)
+        def fake = fakeContainer(dir)
         new File(dir, 'settings.gradle') << "rootProject.name='platform'\n"
         new File(dir, 'build.gradle') << """
-            plugins { id 'io.github.nhwalker.podman'; id 'maven-publish' }
+            plugins { id 'io.github.nhwalker.container'; id 'maven-publish' }
             group = 'com.example'
             version = '1.0'
-            podman {
+            container {
                 executable = '${fake.absolutePath}'
                 images {
                     foo { tags = ['example/foo:1.0']; createArchive = true }
                     bar { tags = ['example/bar:1.0'] }
                 }
             }
-            publishing { publications { maven(MavenPublication) { from components.podman } } }
+            publishing { publications { maven(MavenPublication) { from components.container } } }
         """
 
         when:
@@ -146,26 +146,26 @@ exit 0
         then:
         result.task(':generateMetadataFileForMavenPublication').outcome == SUCCESS
         def module = new File(dir, 'build/publications/maven/module.json').text
-        module.contains('io.github.nhwalker.podman.imageName')
-        module.contains('"io.github.nhwalker.podman.imageName": "foo"')
-        module.contains('"io.github.nhwalker.podman.imageName": "bar"')
-        module.contains('"io.github.nhwalker.podman.imageType": "reference"')
-        module.contains('"io.github.nhwalker.podman.imageType": "archive"')
+        module.contains('io.github.nhwalker.container.imageName')
+        module.contains('"io.github.nhwalker.container.imageName": "foo"')
+        module.contains('"io.github.nhwalker.container.imageName": "bar"')
+        module.contains('"io.github.nhwalker.container.imageType": "reference"')
+        module.contains('"io.github.nhwalker.container.imageType": "archive"')
     }
 
     def "a composite build substitutes an external coordinate with an included project, no substitution rules"() {
         given: 'a standalone producer build (its own dir) addressed by group:name'
         def producer = new File(dir, 'producer')
         producer.mkdirs()
-        def fake = fakePodman(producer)
+        def fake = fakeContainer(producer)
         def cp = pluginClasspathFilesLiteral()
         new File(producer, 'settings.gradle') << "rootProject.name='base'\n"
         new File(producer, 'build.gradle') << """
             buildscript { dependencies { classpath ${cp} } }
-            apply plugin: 'io.github.nhwalker.podman'
+            apply plugin: 'io.github.nhwalker.container'
             group = 'com.example'
             version = '1.0'
-            podman { executable = '${fake.absolutePath}'; images { base { tags = ['base:1'] } } }
+            container { executable = '${fake.absolutePath}'; images { base { tags = ['base:1'] } } }
         """
 
         and: 'a consumer build that includes the producer and depends on the external coordinate'
@@ -174,10 +174,10 @@ exit 0
         new File(consumer, 'settings.gradle') << "rootProject.name='consumer'\nincludeBuild '../producer'\n"
         new File(consumer, 'build.gradle') << """
             buildscript { dependencies { classpath ${cp} } }
-            apply plugin: 'io.github.nhwalker.podman'
+            apply plugin: 'io.github.nhwalker.container'
             group = 'com.example'
             version = '1.0'
-            podman {
+            container {
                 executable = '${fake.absolutePath}'
                 images { app { tags = ['app:1']; from 'BASE_IMAGE', 'com.example:base:1.0' } }
             }

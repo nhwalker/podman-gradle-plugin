@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,13 +12,13 @@ import org.gradle.api.tasks.Optional;
  * Stops one or more running containers with {@code podman stop}.
  *
  * <pre>
- * tasks.register('stopApp', PodmanStopTask) {
+ * tasks.register('stopApp', ContainerStopTask) {
  *     containers = ['app']
  *     ignoreExitValue = true // tolerate "no such container"
  * }
  * </pre>
  */
-public abstract class PodmanStopTask extends AbstractPodmanTask {
+public abstract class ContainerStopTask extends AbstractContainerTask {
 
     /** Names or IDs of the containers to stop. At least one is required. */
     @Input
@@ -34,7 +34,7 @@ public abstract class PodmanStopTask extends AbstractPodmanTask {
     public abstract Property<Integer> getStopTimeout();
 
     @SuppressWarnings("this-escape")
-    public PodmanStopTask() {
+    public ContainerStopTask() {
         getAll().convention(false);
     }
 

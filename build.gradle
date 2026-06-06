@@ -6,7 +6,7 @@ plugins {
 
 group = 'io.github.nhwalker'
 version = '0.1.0'
-description = 'Gradle plugin contributing tasks for working with the podman CLI'
+description = 'Gradle plugin contributing tasks for building and publishing container images (podman by default)'
 
 repositories {
     mavenCentral()
@@ -29,10 +29,10 @@ dependencies {
 
 gradlePlugin {
     plugins {
-        podman {
-            id = 'io.github.nhwalker.podman'
-            implementationClass = 'io.github.nhwalker.podman.gradle.PodmanPlugin'
-            displayName = 'Podman Gradle Plugin'
+        container {
+            id = 'io.github.nhwalker.container'
+            implementationClass = 'io.github.nhwalker.container.gradle.ContainerPlugin'
+            displayName = 'Container Gradle Plugin'
             description = project.description
         }
         helm {

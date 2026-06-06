@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,14 +11,14 @@ import org.gradle.api.tasks.Input;
  * Removes one or more containers with {@code podman rm}.
  *
  * <pre>
- * tasks.register('rmApp', PodmanRemoveContainerTask) {
+ * tasks.register('rmApp', ContainerRemoveContainerTask) {
  *     containers = ['app']
  *     force = true
  *     ignoreExitValue = true
  * }
  * </pre>
  */
-public abstract class PodmanRemoveContainerTask extends AbstractPodmanTask {
+public abstract class ContainerRemoveContainerTask extends AbstractContainerTask {
 
     /** Container names or IDs to remove. At least one is required unless {@link #getAll()}. */
     @Input
@@ -37,7 +37,7 @@ public abstract class PodmanRemoveContainerTask extends AbstractPodmanTask {
     public abstract Property<Boolean> getAll();
 
     @SuppressWarnings("this-escape")
-    public PodmanRemoveContainerTask() {
+    public ContainerRemoveContainerTask() {
         getForce().convention(false);
         getVolumes().convention(false);
         getAll().convention(false);

@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +14,7 @@ import org.gradle.api.tasks.Optional;
  * Runs a container with {@code podman run}.
  *
  * <pre>
- * tasks.register('runApp', PodmanRunTask) {
+ * tasks.register('runApp', ContainerRunTask) {
  *     image = 'example/app:latest'
  *     containerName = 'app'
  *     detach = true
@@ -25,7 +25,7 @@ import org.gradle.api.tasks.Optional;
  * }
  * </pre>
  */
-public abstract class PodmanRunTask extends AbstractPodmanTask {
+public abstract class ContainerRunTask extends AbstractContainerTask {
 
     /** The image to run. Required. */
     @Input
@@ -73,7 +73,7 @@ public abstract class PodmanRunTask extends AbstractPodmanTask {
     public abstract ListProperty<String> getCommand();
 
     @SuppressWarnings("this-escape")
-    public PodmanRunTask() {
+    public ContainerRunTask() {
         getDetach().convention(false);
         getRemove().convention(false);
         getTty().convention(false);
