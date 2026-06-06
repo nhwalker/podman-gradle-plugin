@@ -13,6 +13,9 @@ how each task maps to a podman subcommand. For a quick start, jump to
 - **Built and tested with:** Gradle 9.2, Java 17+
 - **Plugin id:** `io.github.nhwalker.podman`
 
+This build also ships a sibling **Helm** plugin (`io.github.nhwalker.helm`) that
+follows the same design for the `helm` CLI — see [Helm Plugin](#helm-plugin).
+
 ---
 
 ## Design philosophy
@@ -629,6 +632,110 @@ The DSL is built on public helpers in
 (`registerSchema`, `referenceElements`, `archiveElements`, `baseImageBucket`,
 `resolvableReferences`) plus the `PodmanImageReferenceTask` type, so you can wire your own
 tasks into the same configurations without the `images { }` container.
+
+---
+
+## Helm Plugin
+
+The same build ships a second, independently applied plugin,
+`io.github.nhwalker.helm`, that brings the podman plugin's design to
+[Helm](https://helm.sh/): it **drives the `helm` CLI** (it is not an API binding),
+**everything is lazy** (`Provider`-based, configuration-cache friendly), and it
+**contributes task *types*** rather than tasks. Execution flows through an
+`AbstractHelmTask` base that assembles `<executable> <globalOptions> <subcommand>`
+and runs it via `ExecOperations`, exactly like `AbstractPodmanTask`.
+
+It models three task types — the common chart build surface plus an escape hatch:
+
+| Task type | `helm` command | Purpose |
+| --- | --- | --- |
+| `HelmLintTask` | `helm lint` | Examine a chart for issues (`--strict`, `--values`). |
+| `HelmPackageTask` | `helm package` | Package a chart directory into a versioned `.tgz`. |
+| `HelmExecTask` | *any* | Generic escape hatch for unmodeled subcommands. |
+
+`HelmPackageTask` packages into a private temp directory and then moves the single
+produced archive to a stable, declared `packagedChart` output path (helm itself
+names the file `<chartName>-<version>.tgz` from `Chart.yaml`), so the result can be
+tracked as an output and shared as a dependency.
+
+### The `helm { charts { } }` DSL
+
+Declaring a chart registers, under the `helm` task group, a **stage** task (a
+`Sync` that assembles the chart and its subchart dependencies into
+`build/helm/<name>/staged`, keeping your sources pristine), a **package** task
+(`build/helm/<name>/<name>.tgz`), an optional **lint** task, and a consumable
+variant so the packaged chart can be shared with other projects.
+
+```groovy
+plugins { id 'io.github.nhwalker.helm' }
+
+group   = 'com.example'
+version = '1.0.0'
+
+helm {
+    // executable = '/usr/local/bin/helm'           // optional; defaults to `helm` on PATH
+    // globalOptions = ['--namespace', 'platform']  // inserted before every subcommand
+    charts {
+        api {
+            chartDirectory = layout.projectDirectory.dir('src/main/helm/api') // has Chart.yaml
+            chartVersion   = project.version.toString()   // optional → --version
+            appVersion     = '2.3.4'                       // optional → --app-version
+            // lint = false                                // skip the auto lint task
+        }
+    }
+}
+```
+
+(`chartDirectory` defaults to `src/main/helm/<name>`.) This yields the tasks
+`stageApiChart`, `packageApiChart`, and `lintApiChart`.
+
+### Sharing charts as dependencies
+
+Charts are modeled with the same "one module, several attribute-selected variants"
+approach as podman images: module identity stays at the project's `group:name`
+coordinate, the `io.github.nhwalker.helm.chartName` attribute selects which chart,
+and `io.github.nhwalker.helm.ecosystem` fences helm variants off from the JVM
+ecosystem. A `from(...)` dependency resolves another chart's packaged `.tgz` and
+stages it into this chart's `charts/` subchart directory before packaging — Gradle
+orders the producer first automatically.
+
+```groovy
+helm {
+    charts {
+        platform {
+            chartDirectory = layout.projectDirectory.dir('src/main/helm/platform')
+            from project(':api')                       // another project in this build
+            // from 'com.example:billing-chart:1.4.0'  // external / published coordinate
+            // from(project(':services'), 'api')        // pin one chart of a multi-chart producer
+            // from charts.base                         // a sibling chart in this project
+        }
+    }
+}
+```
+
+Your `platform/Chart.yaml` still lists the subchart under `dependencies:`; the
+plugin supplies the archive bytes into `charts/`. Publish the charts the same way
+as podman images — `from components.helm` in a `MavenPublication`.
+
+### Manual task types (no DSL)
+
+```groovy
+import io.github.nhwalker.helm.gradle.tasks.*
+
+tasks.register('lintApi', HelmLintTask) {
+    chartDirectory = layout.projectDirectory.dir('src/main/helm/api')
+    strict = true
+    valuesFiles.from('ci/values.yaml')
+}
+tasks.register('packageApi', HelmPackageTask) {
+    chartDirectory = layout.projectDirectory.dir('src/main/helm/api')
+    chartVersion   = '1.0.0'
+    packagedChart  = layout.buildDirectory.file('helm/api/api.tgz')
+}
+tasks.register('helmVersion', HelmExecTask) {
+    arguments = ['version', '--short']
+}
+```
 
 ---
 

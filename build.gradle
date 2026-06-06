@@ -35,6 +35,12 @@ gradlePlugin {
             displayName = 'Podman Gradle Plugin'
             description = project.description
         }
+        helm {
+            id = 'io.github.nhwalker.helm'
+            implementationClass = 'io.github.nhwalker.helm.gradle.HelmPlugin'
+            displayName = 'Helm Gradle Plugin'
+            description = 'Gradle plugin contributing tasks for working with the helm CLI'
+        }
     }
 }
 
