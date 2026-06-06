@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,13 +15,13 @@ import org.gradle.api.tasks.Input;
  * task runs once per entry in {@link #getTargetImages()}.
  *
  * <pre>
- * tasks.register('tagImage', PodmanTagTask) {
+ * tasks.register('tagImage', ContainerTagTask) {
  *     sourceImage = 'example/app:latest'
  *     targetImages = ['registry.example.com/example/app:1.0']
  * }
  * </pre>
  */
-public abstract class PodmanTagTask extends AbstractPodmanTask {
+public abstract class ContainerTagTask extends AbstractContainerTask {
 
     /** The existing image name or ID. Required. */
     @Input
@@ -50,7 +50,7 @@ public abstract class PodmanTagTask extends AbstractPodmanTask {
         String source = getSourceImage().get();
         List<String> targets = getTargetImages().get();
         if (targets.isEmpty()) {
-            throw new InvalidUserDataException("PodmanTagTask requires at least one target image");
+            throw new InvalidUserDataException("ContainerTagTask requires at least one target image");
         }
         // podman tag accepts a single target per call, so issue one per target.
         for (String target : targets) {

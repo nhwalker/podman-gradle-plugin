@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.dsl;
+package io.github.nhwalker.container.gradle.dsl;
 
 import javax.inject.Inject;
 
@@ -14,20 +14,20 @@ import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 
-import io.github.nhwalker.podman.gradle.dependency.PodmanDependencies;
+import io.github.nhwalker.container.gradle.dependency.ContainerDependencies;
 
 /**
- * A single image declared in the {@code podman { images { } }} container.
+ * A single image declared in the {@code container { images { } }} container.
  *
  * <p>For each image the plugin registers a build task, a reference-writing task,
  * an optional save task, and the consumable configurations other projects resolve
- * against. The image's build configuration mirrors {@code PodmanBuildTask}.
+ * against. The image's build configuration mirrors {@code ContainerBuildTask}.
  *
  * <p>Use {@code from(...)} to declare a base image (a {@code FROM} dependency);
  * the resolved reference is injected into this image's build as a
  * {@code --build-arg}, and the base is built first:
  * <pre>
- * podman { images {
+ * container { images {
  *     base { tags = ['example/base:1.0'] }
  *     app  {
  *         tags = ['example/app:1.0']
@@ -38,7 +38,7 @@ import io.github.nhwalker.podman.gradle.dependency.PodmanDependencies;
  * } }
  * </pre>
  */
-public abstract class PodmanImage implements Named {
+public abstract class ContainerImage implements Named {
 
     /** Default {@code --build-arg} name used by the single-argument {@code from(...)}. */
     public static final String DEFAULT_BASE_ARG = "BASE_IMAGE";
@@ -49,7 +49,7 @@ public abstract class PodmanImage implements Named {
 
     @Inject
     @SuppressWarnings("this-escape")
-    public PodmanImage(String name, Project project) {
+    public ContainerImage(String name, Project project) {
         this.name = name;
         this.project = project;
         this.objects = project.getObjects();
@@ -124,10 +124,10 @@ public abstract class PodmanImage implements Named {
     public void from(String buildArgName, Object dependencyNotation, String imageName) {
         String token = capitalize(sanitize(buildArgName));
         NamedDomainObjectProvider<DependencyScopeConfiguration> bucket =
-                PodmanDependencies.baseImageBucket(project, name + "BaseImageDep" + token);
+                ContainerDependencies.baseImageBucket(project, name + "BaseImageDep" + token);
         project.getDependencies().add(bucket.getName(), dependencyNotation);
         NamedDomainObjectProvider<ResolvableConfiguration> resolvable =
-                PodmanDependencies.resolvableReferences(project, name + "BaseImageRefs" + token, bucket, imageName);
+                ContainerDependencies.resolvableReferences(project, name + "BaseImageRefs" + token, bucket, imageName);
 
         BaseImageReference ref = objects.newInstance(BaseImageReference.class);
         ref.getArgName().set(buildArgName);
@@ -136,7 +136,7 @@ public abstract class PodmanImage implements Named {
     }
 
     /** Declares a base image that is a sibling image in the same project ({@code FROM} it). */
-    public void from(String buildArgName, PodmanImage sibling) {
+    public void from(String buildArgName, ContainerImage sibling) {
         BaseImageReference ref = objects.newInstance(BaseImageReference.class);
         ref.getArgName().set(buildArgName);
         ref.getReferenceFiles().from(
@@ -174,13 +174,13 @@ public abstract class PodmanImage implements Named {
 
     /** The build-relative path of an image's reference file. */
     public static String referenceFilePath(String image) {
-        return "podman/" + image + "/image-ref.txt";
+        return "container/" + image + "/image-ref.txt";
     }
 
     /** The build-relative path of an image's exported archive. */
     public static String archiveFilePath(String image, String archiveFormat) {
         String ext = archiveFormat != null && archiveFormat.startsWith("docker") ? "docker.tar" : "oci.tar";
-        return "podman/" + image + "/" + image + "." + ext;
+        return "container/" + image + "/" + image + "." + ext;
     }
 
     private static String sanitize(String token) {

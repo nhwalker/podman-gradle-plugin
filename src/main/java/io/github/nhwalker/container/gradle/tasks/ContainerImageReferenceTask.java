@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -19,14 +19,14 @@ import org.gradle.api.tasks.OutputFile;
  * <p>The file's first line is the image coordinate ({@code name:tag}); when
  * {@link #getIncludeDigest()} is enabled a second line carries the digest-pinned
  * form ({@code name@sha256:…}) obtained from {@code podman image inspect}.
- * Consumers (for example {@link PodmanBuildTask}'s base-image injection) read the
+ * Consumers (for example {@link ContainerBuildTask}'s base-image injection) read the
  * first line.
  *
  * <p>This task only writes a small text file (and optionally runs a read-only
  * {@code inspect}); it should depend on the corresponding build task so the image
  * exists in podman storage first.
  */
-public abstract class PodmanImageReferenceTask extends AbstractPodmanTask {
+public abstract class ContainerImageReferenceTask extends AbstractContainerTask {
 
     /** The image coordinate ({@code name:tag}) to record. Required. */
     @Input
@@ -41,7 +41,7 @@ public abstract class PodmanImageReferenceTask extends AbstractPodmanTask {
     public abstract RegularFileProperty getReferenceFile();
 
     @SuppressWarnings("this-escape")
-    public PodmanImageReferenceTask() {
+    public ContainerImageReferenceTask() {
         getIncludeDigest().convention(true);
     }
 

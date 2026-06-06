@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -18,7 +18,7 @@ import org.gradle.process.ExecOperations;
 import org.gradle.process.ExecResult;
 
 /**
- * Base class for tasks that invoke the {@code podman} command line.
+ * Base class for tasks that invoke a container engine command line (podman by default).
  *
  * <p>The full command is assembled as:
  * <pre>
@@ -29,13 +29,13 @@ import org.gradle.process.ExecResult;
  * {@link ExecOperations} so the plugin is compatible with the configuration
  * cache and never depends on a Docker/Podman API binding.
  */
-public abstract class AbstractPodmanTask extends DefaultTask {
+public abstract class AbstractContainerTask extends DefaultTask {
 
     private String capturedStandardOutput;
 
     /**
-     * The podman executable to run. Defaults to {@code "podman"} (resolved on
-     * the {@code PATH}); usually configured via the {@code podman} extension.
+     * The container engine executable to run. Defaults to {@code "podman"} (resolved on
+     * the {@code PATH}); usually configured via the {@code container} extension.
      */
     @Input
     public abstract Property<String> getExecutable();
@@ -76,7 +76,7 @@ public abstract class AbstractPodmanTask extends DefaultTask {
     protected abstract ExecOperations getExecOperations();
 
     @SuppressWarnings("this-escape")
-    protected AbstractPodmanTask() {
+    protected AbstractContainerTask() {
         getExecutable().convention("podman");
         getIgnoreExitValue().convention(false);
         getDryRun().convention(false);
@@ -84,7 +84,7 @@ public abstract class AbstractPodmanTask extends DefaultTask {
     }
 
     /**
-     * The podman subcommand together with its arguments, for example
+     * The container engine subcommand together with its arguments, for example
      * {@code ["build", "-t", "img:latest", "."]}. Implemented by concrete tasks.
      *
      * @return the ordered subcommand arguments; never {@code null}
@@ -109,11 +109,11 @@ public abstract class AbstractPodmanTask extends DefaultTask {
     }
 
     /**
-     * Runs a single podman subcommand using the shared executable, global
+     * Runs a single container engine subcommand using the shared executable, global
      * options and connection. Honors {@link #getDryRun()} (logs and skips) and
      * {@link #getIgnoreExitValue()} (logs instead of failing on a non-zero exit).
      *
-     * <p>This is the primitive that concrete tasks issuing more than one podman
+     * <p>This is the primitive that concrete tasks issuing more than one engine
      * invocation (for example {@code tag} or {@code cp}) build on.
      *
      * @param subcommand   the subcommand and its arguments, e.g. {@code ["pull", "img"]}

@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,14 +11,14 @@ import org.gradle.api.tasks.Input;
  * Removes one or more images with {@code podman rmi}.
  *
  * <pre>
- * tasks.register('removeImage', PodmanRemoveImageTask) {
+ * tasks.register('removeImage', ContainerRemoveImageTask) {
  *     images = ['example/app:latest']
  *     force = true
  *     ignoreExitValue = true // tolerate "image not known"
  * }
  * </pre>
  */
-public abstract class PodmanRemoveImageTask extends AbstractPodmanTask {
+public abstract class ContainerRemoveImageTask extends AbstractContainerTask {
 
     /** Image names or IDs to remove. At least one is required unless {@link #getAll()}. */
     @Input
@@ -33,7 +33,7 @@ public abstract class PodmanRemoveImageTask extends AbstractPodmanTask {
     public abstract Property<Boolean> getAll();
 
     @SuppressWarnings("this-escape")
-    public PodmanRemoveImageTask() {
+    public ContainerRemoveImageTask() {
         getForce().convention(false);
         getAll().convention(false);
     }

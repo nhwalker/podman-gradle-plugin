@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle;
+package io.github.nhwalker.container.gradle;
 
 import javax.inject.Inject;
 
@@ -9,17 +9,17 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
-import io.github.nhwalker.podman.gradle.dsl.PodmanImage;
+import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 
 /**
- * Project-level configuration for the Podman plugin.
+ * Project-level configuration for the Container plugin.
  *
  * <p>The {@code executable}/{@code globalOptions}/{@code connection} values are
- * used as conventions for every podman task in the project. The {@code images}
+ * used as conventions for every container task in the project. The {@code images}
  * container declares images to build and share as dependencies:
  *
  * <pre>
- * podman {
+ * container {
  *     executable = '/usr/local/bin/podman'
  *     images {
  *         base { tags = ['example/base:1.0'] }
@@ -28,20 +28,20 @@ import io.github.nhwalker.podman.gradle.dsl.PodmanImage;
  * }
  * </pre>
  */
-public abstract class PodmanExtension {
+public abstract class ContainerExtension {
 
-    private final NamedDomainObjectContainer<PodmanImage> images;
+    private final NamedDomainObjectContainer<ContainerImage> images;
 
     @Inject
-    public PodmanExtension(ObjectFactory objects, Project project) {
-        // PodmanImage needs the Project to create its dependency configurations, so
+    public ContainerExtension(ObjectFactory objects, Project project) {
+        // ContainerImage needs the Project to create its dependency configurations, so
         // the container uses a custom element factory rather than Gradle's default.
-        this.images = objects.domainObjectContainer(PodmanImage.class,
-                name -> objects.newInstance(PodmanImage.class, name, project));
+        this.images = objects.domainObjectContainer(ContainerImage.class,
+                name -> objects.newInstance(ContainerImage.class, name, project));
     }
 
     /**
-     * The podman executable to invoke. Defaults to {@code "podman"}, resolved
+     * The container engine executable to invoke. Defaults to {@code "podman"}, resolved
      * against the {@code PATH} of the Gradle process.
      */
     public abstract Property<String> getExecutable();
@@ -60,12 +60,12 @@ public abstract class PodmanExtension {
     public abstract Property<String> getConnection();
 
     /** The images declared for this project. */
-    public NamedDomainObjectContainer<PodmanImage> getImages() {
+    public NamedDomainObjectContainer<ContainerImage> getImages() {
         return images;
     }
 
     /** Configures the {@link #getImages() images} container. */
-    public void images(Action<? super NamedDomainObjectContainer<PodmanImage>> action) {
+    public void images(Action<? super NamedDomainObjectContainer<ContainerImage>> action) {
         action.execute(images);
     }
 }

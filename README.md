@@ -11,7 +11,7 @@ how each task maps to a podman subcommand. For a quick start, jump to
 - **Implementation language:** Java
 - **Build scripts:** Groovy
 - **Built and tested with:** Gradle 9.2, Java 17+
-- **Plugin id:** `io.github.nhwalker.podman`
+- **Plugin id:** `io.github.nhwalker.container`
 
 This build also ships a sibling **Helm** plugin (`io.github.nhwalker.helm`) that
 follows the same design for the `helm` CLI — see [Helm Plugin](#helm-plugin).
@@ -50,41 +50,41 @@ The plugin is built around three deliberate choices.
 The plugin has four kinds of moving part:
 
 ```
-PodmanPlugin                 ← entry point; registers extension + wires conventions
+ContainerPlugin                 ← entry point; registers extension + wires conventions
    │
-   ├── PodmanExtension       ← the `podman { }` block (shared defaults)
+   ├── ContainerExtension       ← the `container { }` block (shared defaults)
    │
-   └── AbstractPodmanTask    ← the engine: assembles + executes the command
-          ├── PodmanBuildTask
-          ├── PodmanPushTask
-          ├── PodmanPullTask
-          ├── PodmanTagTask
-          ├── PodmanRunTask
-          ├── PodmanStopTask
-          ├── PodmanRemoveContainerTask
-          ├── PodmanRemoveImageTask
-          ├── PodmanSaveTask
-          ├── PodmanLoadTask
-          ├── PodmanCopyFromImageTask  ← create + cp + rm orchestration
-          └── PodmanExecTask  ← generic escape hatch
+   └── AbstractContainerTask    ← the engine: assembles + executes the command
+          ├── ContainerBuildTask
+          ├── ContainerPushTask
+          ├── ContainerPullTask
+          ├── ContainerTagTask
+          ├── ContainerRunTask
+          ├── ContainerStopTask
+          ├── ContainerRemoveContainerTask
+          ├── ContainerRemoveImageTask
+          ├── ContainerSaveTask
+          ├── ContainerLoadTask
+          ├── ContainerCopyFromImageTask  ← create + cp + rm orchestration
+          └── ContainerExecTask  ← generic escape hatch
 ```
 
-### 1. `PodmanPlugin` — the entry point
+### 1. `ContainerPlugin` — the entry point
 
-When you apply `id 'io.github.nhwalker.podman'`, the plugin's `apply(Project)`
+When you apply `id 'io.github.nhwalker.container'`, the plugin's `apply(Project)`
 does two small things:
 
 ```java
 public void apply(Project project) {
-    // (a) register the `podman { }` extension and give `executable` a default
-    PodmanExtension extension =
-            project.getExtensions().create("podman", PodmanExtension.class);
+    // (a) register the `container { }` extension and give `executable` a default
+    ContainerExtension extension =
+            project.getExtensions().create("container", ContainerExtension.class);
     extension.getExecutable().convention("podman");
 
-    // (b) for EVERY podman task that ever gets created, inherit the extension's
-    //     values as conventions and put the task in the "podman" group
-    project.getTasks().withType(AbstractPodmanTask.class).configureEach(task -> {
-        task.setGroup("podman");
+    // (b) for EVERY container task that ever gets created, inherit the extension's
+    //     values as conventions and put the task in the "container" group
+    project.getTasks().withType(AbstractContainerTask.class).configureEach(task -> {
+        task.setGroup("container");
         task.getExecutable().convention(extension.getExecutable());
         task.getGlobalOptions().convention(extension.getGlobalOptions());
         task.getConnection().convention(extension.getConnection());
@@ -94,16 +94,16 @@ public void apply(Project project) {
 
 The key mechanism is `tasks.withType(...).configureEach(...)`. This is a *live*,
 lazy hook: it runs its configuration block for any current **or future** task of
-type `AbstractPodmanTask`, without forcing those tasks to be created. That is how
-a value you set once in `podman { }` reaches every podman task — even tasks
-registered after the `podman { }` block — while staying compatible with lazy task
+type `AbstractContainerTask`, without forcing those tasks to be created. That is how
+a value you set once in `container { }` reaches every container task — even tasks
+registered after the `container { }` block — while staying compatible with lazy task
 realization.
 
 Because these are `convention(...)` calls (not `set(...)`), they only supply a
 *default*. Anything you set explicitly on an individual task overrides the
 extension.
 
-### 2. `PodmanExtension` — shared defaults
+### 2. `ContainerExtension` — shared defaults
 
 The extension is an abstract class with three lazy properties, so Gradle
 generates the implementation:
@@ -116,7 +116,7 @@ generates the implementation:
 
 These exist purely to be wired into tasks as conventions (see above).
 
-### 3. `AbstractPodmanTask` — the engine
+### 3. `AbstractContainerTask` — the engine
 
 This is where the real work happens. Every concrete task extends it. It owns the
 shared inputs, the command-assembly algorithm, and the execution logic.
@@ -242,7 +242,7 @@ The five steps:
 
 Each concrete task is small: it declares its own typed properties and implements
 `buildSubcommand()` by translating those properties into podman arguments using
-the helpers. For example, `PodmanBuildTask.buildSubcommand()` does roughly:
+the helpers. For example, `ContainerBuildTask.buildSubcommand()` does roughly:
 
 ```java
 List<String> args = new ArrayList<>();
@@ -268,34 +268,34 @@ podman feature.
 ## How each task maps to podman
 
 All task types live in the package
-`io.github.nhwalker.podman.gradle.tasks`.
+`io.github.nhwalker.container.gradle.tasks`.
 
 | Task type                    | Command   | Notable typed properties                                                                 |
 |------------------------------|-----------|------------------------------------------------------------------------------------------|
-| `PodmanBuildTask`            | `build`   | `contextDirectory`, `containerfile`, `tags`, `buildArgs`, `labels`, `platform`, `target`, `noCache`, `pull` |
-| `PodmanPushTask`             | `push`    | `image`, `destination`, `tlsVerify`                                                       |
-| `PodmanPullTask`             | `pull`    | `image`, `platform`, `tlsVerify`                                                          |
-| `PodmanTagTask`              | `tag`     | `sourceImage`, `targetImages` (runs once per target — see below)                         |
-| `PodmanRunTask`              | `run`     | `image`, `containerName`, `detach`, `remove`, `tty`, `interactive`, `ports`, `volumes`, `environment`, `command` |
-| `PodmanStopTask`             | `stop`    | `containers`, `all`, `stopTimeout`                                                        |
-| `PodmanRemoveContainerTask`  | `rm`      | `containers`, `force`, `volumes`, `all`                                                   |
-| `PodmanRemoveImageTask`      | `rmi`     | `images`, `force`, `all`                                                                  |
-| `PodmanSaveTask`             | `save`    | `image`, `outputFile`, `format`                                                           |
-| `PodmanLoadTask`             | `load`    | `inputFile`                                                                               |
-| `PodmanCopyFromImageTask`    | `create` + `cp` + `rm` | `image` *or* `container`, `paths`, `createOptions`, `copyOptions`, `removeContainer` |
-| `PodmanExecTask`             | *any*     | `arguments`                                                                               |
+| `ContainerBuildTask`            | `build`   | `contextDirectory`, `containerfile`, `tags`, `buildArgs`, `labels`, `platform`, `target`, `noCache`, `pull` |
+| `ContainerPushTask`             | `push`    | `image`, `destination`, `tlsVerify`                                                       |
+| `ContainerPullTask`             | `pull`    | `image`, `platform`, `tlsVerify`                                                          |
+| `ContainerTagTask`              | `tag`     | `sourceImage`, `targetImages` (runs once per target — see below)                         |
+| `ContainerRunTask`              | `run`     | `image`, `containerName`, `detach`, `remove`, `tty`, `interactive`, `ports`, `volumes`, `environment`, `command` |
+| `ContainerStopTask`             | `stop`    | `containers`, `all`, `stopTimeout`                                                        |
+| `ContainerRemoveContainerTask`  | `rm`      | `containers`, `force`, `volumes`, `all`                                                   |
+| `ContainerRemoveImageTask`      | `rmi`     | `images`, `force`, `all`                                                                  |
+| `ContainerSaveTask`             | `save`    | `image`, `outputFile`, `format`                                                           |
+| `ContainerLoadTask`             | `load`    | `inputFile`                                                                               |
+| `ContainerCopyFromImageTask`    | `create` + `cp` + `rm` | `image` *or* `container`, `paths`, `createOptions`, `copyOptions`, `removeContainer` |
+| `ContainerExecTask`             | *any*     | `arguments`                                                                               |
 
 ### Tasks that issue more than one podman command
 
 Most tasks run exactly one podman invocation. Two orchestrate several, building
-on the shared `runSubcommand(...)` primitive in `AbstractPodmanTask` (which still
+on the shared `runSubcommand(...)` primitive in `AbstractContainerTask` (which still
 honors `dryRun`/`ignoreExitValue` for every call):
 
-- **`PodmanTagTask`** — `podman tag` only accepts a single new name per
+- **`ContainerTagTask`** — `podman tag` only accepts a single new name per
   invocation, so the task runs `podman tag <source> <target>` **once per entry**
   in `targetImages`.
 
-- **`PodmanCopyFromImageTask`** — `podman cp` operates on *containers*, not
+- **`ContainerCopyFromImageTask`** — `podman cp` operates on *containers*, not
   images. To extract files from an image the task:
   1. runs `podman create <image>` and captures the new container id from stdout
      (the container is created but never started);
@@ -320,10 +320,10 @@ honestly through its input/output annotations:
   `rm`, `rmi`, `tag`). A task with no declared outputs is never considered
   up-to-date, so these run every time you invoke them — which is the correct
   behavior for imperative, side-effecting commands.
-- **`PodmanBuildTask.contextDirectory` is `@Internal`**, not an input. The build
+- **`ContainerBuildTask.contextDirectory` is `@Internal`**, not an input. The build
   context can be huge (and podman/BuildKit do their own change detection), so the
   plugin deliberately does not snapshot it.
-- **`PodmanSaveTask` declares its archive as `@OutputFile`** and `PodmanLoadTask`
+- **`ContainerSaveTask` declares its archive as `@OutputFile`** and `ContainerLoadTask`
   declares its `@InputFile`. These produce/consume real files, so they *do*
   participate in up-to-date checks and can be skipped when nothing changed.
 
@@ -341,13 +341,13 @@ Two properties make that work:
 - **No `Project` access at execution time.** Process execution goes through the
   injected `ExecOperations` service, and there is no `project.exec`, no
   `project.getXxx()` inside any `@TaskAction`. (The one place a build references
-  `getProject()` — `PodmanBuildTask`'s constructor, to default the context
+  `getProject()` — `ContainerBuildTask`'s constructor, to default the context
   directory — runs at *configuration* time, which is allowed.)
 - **All inputs are `Provider`-backed**, so their values are resolved lazily and
   serialized into the configuration-cache entry rather than recomputed against a
   live project model.
 
-A functional test (`PodmanPluginFunctionalSpec`) runs a task twice with
+A functional test (`ContainerPluginFunctionalSpec`) runs a task twice with
 `--configuration-cache` and asserts the second run reports
 `Reusing configuration cache.`
 
@@ -359,14 +359,14 @@ Apply the plugin:
 
 ```groovy
 plugins {
-    id 'io.github.nhwalker.podman' version '0.1.0'
+    id 'io.github.nhwalker.container' version '0.1.0'
 }
 ```
 
 Configure shared defaults (optional):
 
 ```groovy
-podman {
+container {
     executable    = '/usr/local/bin/podman'   // default: 'podman' on PATH
     globalOptions = ['--log-level', 'info']    // inserted before every subcommand
     connection    = 'my-remote'                // adds --connection my-remote
@@ -376,9 +376,9 @@ podman {
 Declare the tasks you need:
 
 ```groovy
-import io.github.nhwalker.podman.gradle.tasks.*
+import io.github.nhwalker.container.gradle.tasks.*
 
-tasks.register('buildImage', PodmanBuildTask) {
+tasks.register('buildImage', ContainerBuildTask) {
     contextDirectory = layout.projectDirectory.dir('src/main/docker')
     containerfile    = layout.projectDirectory.file('src/main/docker/Containerfile')
     tags             = ["example/app:${version}", 'example/app:latest']
@@ -388,18 +388,18 @@ tasks.register('buildImage', PodmanBuildTask) {
     pull             = true
 }
 
-tasks.register('tagImage', PodmanTagTask) {
+tasks.register('tagImage', ContainerTagTask) {
     sourceImage  = "example/app:${version}"
     targetImages = ["registry.example.com/example/app:${version}"]
 }
 
-tasks.register('pushImage', PodmanPushTask) {
+tasks.register('pushImage', ContainerPushTask) {
     dependsOn 'tagImage'
     image     = "registry.example.com/example/app:${version}"
     tlsVerify = true
 }
 
-tasks.register('runApp', PodmanRunTask) {
+tasks.register('runApp', ContainerRunTask) {
     image         = 'example/app:latest'
     containerName = 'app'
     detach        = true
@@ -409,18 +409,18 @@ tasks.register('runApp', PodmanRunTask) {
     command       = ['--server.port=8080']
 }
 
-tasks.register('stopApp', PodmanStopTask) {
+tasks.register('stopApp', ContainerStopTask) {
     containers      = ['app']
     ignoreExitValue = true   // tolerate "no such container"
 }
 
-tasks.register('saveImage', PodmanSaveTask) {
+tasks.register('saveImage', ContainerSaveTask) {
     image      = 'example/app:latest'
     outputFile = layout.buildDirectory.file('images/app.tar')
     format     = 'oci-archive'
 }
 
-tasks.register('loadImage', PodmanLoadTask) {
+tasks.register('loadImage', ContainerLoadTask) {
     inputFile = layout.buildDirectory.file('images/app.tar')
 }
 ```
@@ -432,7 +432,7 @@ creates a throwaway container from the image, copies each path out, and removes
 the container automatically:
 
 ```groovy
-tasks.register('extractArtifacts', PodmanCopyFromImageTask) {
+tasks.register('extractArtifacts', ContainerCopyFromImageTask) {
     image = 'example/app:latest'
     paths = [
         // path inside the image : destination on the host
@@ -443,7 +443,7 @@ tasks.register('extractArtifacts', PodmanCopyFromImageTask) {
 }
 
 // Or copy from a container that already exists (no create/remove happens):
-tasks.register('extractFromRunning', PodmanCopyFromImageTask) {
+tasks.register('extractFromRunning', ContainerCopyFromImageTask) {
     container = 'app'
     paths = ['/var/log/app.log': layout.buildDirectory.file('logs/app.log').get().asFile.path]
 }
@@ -451,11 +451,11 @@ tasks.register('extractFromRunning', PodmanCopyFromImageTask) {
 
 ### The generic escape hatch
 
-For any subcommand without a dedicated task, use `PodmanExecTask`, optionally
+For any subcommand without a dedicated task, use `ContainerExecTask`, optionally
 capturing its output:
 
 ```groovy
-tasks.register('listImages', PodmanExecTask) {
+tasks.register('listImages', ContainerExecTask) {
     arguments     = ['images', '--format', '{{.Repository}}:{{.Tag}}']
     captureOutput = true
     doLast { println standardOutput }
@@ -465,7 +465,7 @@ tasks.register('listImages', PodmanExecTask) {
 ### Inspecting a command without running it
 
 ```groovy
-tasks.register('buildImage', PodmanBuildTask) {
+tasks.register('buildImage', ContainerBuildTask) {
     tags   = ['example/app:latest']
     dryRun = true   // prints "[dry-run] podman build -t example/app:latest ." and exits
 }
@@ -480,13 +480,13 @@ Gradle dependencies**, so an image built in one project (or build) can be consum
 as the base image of another, transferred as an archive, aggregated for a push, or
 published to a Maven repository — all through Gradle's normal dependency machinery.
 
-Declare images in the `podman { images { } }` container. Each image automatically
+Declare images in the `container { images { } }` container. Each image automatically
 gets a build task (`build<Name>Image`), a reference-writing task
 (`write<Name>ImageReference`), an optional save task (`save<Name>Image` when
 `createArchive = true`), and the consumable configurations other projects resolve.
 
 ```groovy
-podman {
+container {
     images {
         base {
             containerfile = file('base/Containerfile')
@@ -514,8 +514,8 @@ jars:
   by default, its digest (`name@sha256:…`) — a coordinate pointer; the image itself stays
   in podman's local storage. The **archive** variant carries the actual `podman save` tar.
 
-The custom attributes live in `io.github.nhwalker.podman.gradle.dependency.PodmanAttributes`
-and are isolated from the JVM ecosystem by a required `ecosystem=podman-image` marker.
+The custom attributes live in `io.github.nhwalker.container.gradle.dependency.ContainerAttributes`
+and are isolated from the JVM ecosystem by a required `ecosystem=container-image` marker.
 
 ### Base images (`FROM`)
 
@@ -524,7 +524,7 @@ first) and injects the resolved base reference into the dependent build as a
 `--build-arg`, read at execution time:
 
 ```groovy
-podman {
+container {
     images {
         base { tags = ["com.example/base:${version}"] }
         app {
@@ -550,23 +550,23 @@ FROM ${BASE_IMAGE}
 ### Archive transfer
 
 Set `createArchive = true` on the producer, then resolve the `archive` variant in the
-consumer and feed it to `PodmanLoadTask` (or a push):
+consumer and feed it to `ContainerLoadTask` (or a push):
 
 ```groovy
-import io.github.nhwalker.podman.gradle.dependency.PodmanAttributes
+import io.github.nhwalker.container.gradle.dependency.ContainerAttributes
 
 configurations {
     incomingImage {
         canBeConsumed = false; canBeResolved = true
         attributes {
-            attribute(PodmanAttributes.ECOSYSTEM, PodmanAttributes.ECOSYSTEM_VALUE)
-            attribute(PodmanAttributes.IMAGE_TYPE, PodmanAttributes.IMAGE_TYPE_ARCHIVE)
+            attribute(ContainerAttributes.ECOSYSTEM, ContainerAttributes.ECOSYSTEM_VALUE)
+            attribute(ContainerAttributes.IMAGE_TYPE, ContainerAttributes.IMAGE_TYPE_ARCHIVE)
         }
     }
 }
 dependencies { incomingImage project(':base') }
 
-tasks.register('loadBase', io.github.nhwalker.podman.gradle.tasks.PodmanLoadTask) {
+tasks.register('loadBase', io.github.nhwalker.container.gradle.tasks.ContainerLoadTask) {
     inputFile = layout.file(provider { configurations.incomingImage.singleFile })
 }
 ```
@@ -581,8 +581,8 @@ configurations {
     allRefs {
         canBeConsumed = false; canBeResolved = true
         attributes {
-            attribute(PodmanAttributes.ECOSYSTEM, PodmanAttributes.ECOSYSTEM_VALUE)
-            attribute(PodmanAttributes.IMAGE_TYPE, PodmanAttributes.IMAGE_TYPE_REFERENCE)
+            attribute(ContainerAttributes.ECOSYSTEM, ContainerAttributes.ECOSYSTEM_VALUE)
+            attribute(ContainerAttributes.IMAGE_TYPE, ContainerAttributes.IMAGE_TYPE_REFERENCE)
         }
     }
 }
@@ -592,19 +592,19 @@ dependencies { allRefs project(':base'); allRefs project(':app') }
 
 ### Publishing
 
-The plugin contributes one software component, `podman`, aggregating **every** image's
+The plugin contributes one software component, `container`, aggregating **every** image's
 variants. Attach it to a `MavenPublication`:
 
 ```groovy
-plugins { id 'io.github.nhwalker.podman'; id 'maven-publish' }
+plugins { id 'io.github.nhwalker.container'; id 'maven-publish' }
 group = 'com.example'; version = '1.0'
 
-podman { images {
+container { images {
     foo { tags = ['example/foo:1.0']; createArchive = true }
     bar { tags = ['example/bar:1.0'] }
 } }
 
-publishing { publications { maven(MavenPublication) { from components.podman } } }
+publishing { publications { maven(MavenPublication) { from components.container } } }
 ```
 
 The whole project publishes as one module whose Gradle Module Metadata carries every
@@ -622,15 +622,15 @@ substitutes it with the included project:
 // consumer settings.gradle
 includeBuild '../platform'
 // consumer build.gradle — identical whether resolved from a repo or substituted
-podman { images { app { from 'BASE_IMAGE', 'com.example:platform:1.0', 'runtime' } } }
+container { images { app { from 'BASE_IMAGE', 'com.example:platform:1.0', 'runtime' } } }
 ```
 
 ### Low-level plumbing
 
 The DSL is built on public helpers in
-`io.github.nhwalker.podman.gradle.dependency.PodmanDependencies`
+`io.github.nhwalker.container.gradle.dependency.ContainerDependencies`
 (`registerSchema`, `referenceElements`, `archiveElements`, `baseImageBucket`,
-`resolvableReferences`) plus the `PodmanImageReferenceTask` type, so you can wire your own
+`resolvableReferences`) plus the `ContainerImageReferenceTask` type, so you can wire your own
 tasks into the same configurations without the `images { }` container.
 
 ---
@@ -638,12 +638,12 @@ tasks into the same configurations without the `images { }` container.
 ## Helm Plugin
 
 The same build ships a second, independently applied plugin,
-`io.github.nhwalker.helm`, that brings the podman plugin's design to
+`io.github.nhwalker.helm`, that brings the container plugin's design to
 [Helm](https://helm.sh/): it **drives the `helm` CLI** (it is not an API binding),
 **everything is lazy** (`Provider`-based, configuration-cache friendly), and it
 **contributes task *types*** rather than tasks. Execution flows through an
 `AbstractHelmTask` base that assembles `<executable> <globalOptions> <subcommand>`
-and runs it via `ExecOperations`, exactly like `AbstractPodmanTask`.
+and runs it via `ExecOperations`, exactly like `AbstractContainerTask`.
 
 It models three task types — the common chart build surface plus an escape hatch:
 
@@ -691,7 +691,7 @@ helm {
 
 ### Build-time value injection (`preValues`)
 
-`preValues` is a key/value map (the helm counterpart of podman's `buildArgs`).
+`preValues` is a key/value map (the helm counterpart of the container plugin's `buildArgs`).
 During staging — before `helm package`/`helm lint` run — each placeholder of the
 form <code>{{ .PreValues.&lt;name&gt; }}</code> (whitespace inside the braces is
 ignored) in the chart's `Chart.yaml` and `values.yaml` is replaced with the
@@ -726,7 +726,7 @@ image:
 ### Sharing charts as dependencies
 
 Charts are modeled with the same "one module, several attribute-selected variants"
-approach as podman images: module identity stays at the project's `group:name`
+approach as container images: module identity stays at the project's `group:name`
 coordinate, the `io.github.nhwalker.helm.chartName` attribute selects which chart,
 and `io.github.nhwalker.helm.ecosystem` fences helm variants off from the JVM
 ecosystem. A `from(...)` dependency resolves another chart's packaged `.tgz` and
@@ -749,7 +749,7 @@ helm {
 
 Your `platform/Chart.yaml` still lists the subchart under `dependencies:`; the
 plugin supplies the archive bytes into `charts/`. Publish the charts the same way
-as podman images — `from components.helm` in a `MavenPublication`.
+as container images — `from components.helm` in a `MavenPublication`.
 
 ### Manual task types (no DSL)
 

@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,12 +12,12 @@ import org.gradle.api.tasks.PathSensitivity;
  * Loads an image from a tar archive with {@code podman load}.
  *
  * <pre>
- * tasks.register('loadImage', PodmanLoadTask) {
+ * tasks.register('loadImage', ContainerLoadTask) {
  *     inputFile = layout.buildDirectory.file('images/app.tar')
  * }
  * </pre>
  */
-public abstract class PodmanLoadTask extends AbstractPodmanTask {
+public abstract class ContainerLoadTask extends AbstractContainerTask {
 
     /** The archive file to import ({@code -i}). Required. */
     @InputFile

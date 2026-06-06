@@ -1,4 +1,4 @@
-package io.github.nhwalker.podman.gradle.tasks;
+package io.github.nhwalker.container.gradle.tasks;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -31,7 +31,7 @@ import org.gradle.api.tasks.Optional;
  * instead of {@link #getImage()} and no container is created or removed.
  *
  * <pre>
- * tasks.register('extractArtifacts', PodmanCopyFromImageTask) {
+ * tasks.register('extractArtifacts', ContainerCopyFromImageTask) {
  *     image = 'example/app:latest'
  *     paths = [
  *         '/app/app.jar'      : layout.buildDirectory.file('extracted/app.jar').get().asFile.path,
@@ -41,7 +41,7 @@ import org.gradle.api.tasks.Optional;
  * }
  * </pre>
  */
-public abstract class PodmanCopyFromImageTask extends AbstractPodmanTask {
+public abstract class ContainerCopyFromImageTask extends AbstractContainerTask {
 
     /**
      * The image to extract files from. A temporary container is created from it.
@@ -82,7 +82,7 @@ public abstract class PodmanCopyFromImageTask extends AbstractPodmanTask {
     public abstract Property<Boolean> getRemoveContainer();
 
     @SuppressWarnings("this-escape")
-    public PodmanCopyFromImageTask() {
+    public ContainerCopyFromImageTask() {
         getRemoveContainer().convention(true);
     }
 
@@ -109,13 +109,13 @@ public abstract class PodmanCopyFromImageTask extends AbstractPodmanTask {
     public void execute() {
         Map<String, String> paths = getPaths().get();
         if (paths.isEmpty()) {
-            throw new InvalidUserDataException("PodmanCopyFromImageTask requires at least one path to copy");
+            throw new InvalidUserDataException("ContainerCopyFromImageTask requires at least one path to copy");
         }
         boolean hasImage = getImage().isPresent();
         boolean hasContainer = getContainer().isPresent();
         if (hasImage == hasContainer) {
             throw new InvalidUserDataException(
-                    "PodmanCopyFromImageTask requires exactly one of 'image' or 'container' to be set");
+                    "ContainerCopyFromImageTask requires exactly one of 'image' or 'container' to be set");
         }
 
         if (getDryRun().get()) {

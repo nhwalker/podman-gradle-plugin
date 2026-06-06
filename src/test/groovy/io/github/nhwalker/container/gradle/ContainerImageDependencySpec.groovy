@@ -1,6 +1,6 @@
-package io.github.nhwalker.podman.gradle
+package io.github.nhwalker.container.gradle
 
-import io.github.nhwalker.podman.gradle.dependency.PodmanAttributes
+import io.github.nhwalker.container.gradle.dependency.ContainerAttributes
 import org.gradle.api.component.AdhocComponentWithVariants
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.testfixtures.ProjectBuilder
@@ -12,12 +12,12 @@ import spock.lang.Specification
  * ProjectBuilder and forces the configuration lifecycle with evaluate() so the
  * plugin's afterEvaluate reaction runs.
  */
-class PodmanImageDependencySpec extends Specification {
+class ContainerImageDependencySpec extends Specification {
 
     def project = ProjectBuilder.builder().build()
 
     def setup() {
-        project.pluginManager.apply(PodmanPlugin)
+        project.pluginManager.apply(ContainerPlugin)
         project.group = 'com.example'
         project.version = '1.0'
     }
@@ -26,17 +26,17 @@ class PodmanImageDependencySpec extends Specification {
         ((ProjectInternal) project).evaluate()
     }
 
-    def "registers the podman attributes in the schema"() {
+    def "registers the container attributes in the schema"() {
         expect:
-        project.dependencies.attributesSchema.hasAttribute(PodmanAttributes.ECOSYSTEM)
-        project.dependencies.attributesSchema.hasAttribute(PodmanAttributes.IMAGE_NAME)
-        project.dependencies.attributesSchema.hasAttribute(PodmanAttributes.IMAGE_TYPE)
-        project.dependencies.attributesSchema.hasAttribute(PodmanAttributes.ARCHIVE_FORMAT)
+        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.ECOSYSTEM)
+        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.IMAGE_NAME)
+        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.IMAGE_TYPE)
+        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.ARCHIVE_FORMAT)
     }
 
     def "an image creates build + reference tasks and a reference-elements consumable"() {
         given:
-        project.podman { images { foo { tags = ['example/foo:1.0'] } } }
+        project.container { images { foo { tags = ['example/foo:1.0'] } } }
 
         when:
         evaluate()
@@ -48,17 +48,17 @@ class PodmanImageDependencySpec extends Specification {
         and:
         def cfg = project.configurations.getByName('fooReferenceElements')
         cfg.canBeConsumed && !cfg.canBeResolved && !cfg.canBeDeclared
-        cfg.attributes.getAttribute(PodmanAttributes.ECOSYSTEM) == PodmanAttributes.ECOSYSTEM_VALUE
-        cfg.attributes.getAttribute(PodmanAttributes.IMAGE_NAME) == 'foo'
-        cfg.attributes.getAttribute(PodmanAttributes.IMAGE_TYPE) == PodmanAttributes.IMAGE_TYPE_REFERENCE
+        cfg.attributes.getAttribute(ContainerAttributes.ECOSYSTEM) == ContainerAttributes.ECOSYSTEM_VALUE
+        cfg.attributes.getAttribute(ContainerAttributes.IMAGE_NAME) == 'foo'
+        cfg.attributes.getAttribute(ContainerAttributes.IMAGE_TYPE) == ContainerAttributes.IMAGE_TYPE_REFERENCE
 
         and: 'the project component exists and is adhoc'
-        project.components.findByName('podman') instanceof AdhocComponentWithVariants
+        project.components.findByName('container') instanceof AdhocComponentWithVariants
     }
 
     def "createArchive adds a save task and an archive-elements consumable"() {
         given:
-        project.podman { images { foo { tags = ['example/foo:1.0']; createArchive = true } } }
+        project.container { images { foo { tags = ['example/foo:1.0']; createArchive = true } } }
 
         when:
         evaluate()
@@ -67,13 +67,13 @@ class PodmanImageDependencySpec extends Specification {
         project.tasks.findByName('saveFooImage') != null
         def cfg = project.configurations.getByName('fooArchiveElements')
         cfg.canBeConsumed && !cfg.canBeResolved
-        cfg.attributes.getAttribute(PodmanAttributes.IMAGE_TYPE) == PodmanAttributes.IMAGE_TYPE_ARCHIVE
-        cfg.attributes.getAttribute(PodmanAttributes.ARCHIVE_FORMAT) == PodmanAttributes.ARCHIVE_FORMAT_OCI
+        cfg.attributes.getAttribute(ContainerAttributes.IMAGE_TYPE) == ContainerAttributes.IMAGE_TYPE_ARCHIVE
+        cfg.attributes.getAttribute(ContainerAttributes.ARCHIVE_FORMAT) == ContainerAttributes.ARCHIVE_FORMAT_OCI
     }
 
     def "from(project) creates a base-image bucket and a reference-requesting resolvable"() {
         given:
-        project.podman {
+        project.container {
             images {
                 app {
                     tags = ['example/app:1.0']
@@ -93,12 +93,12 @@ class PodmanImageDependencySpec extends Specification {
         and:
         def resolvable = project.configurations.getByName('appBaseImageRefsBASEIMAGE')
         resolvable.canBeResolved && !resolvable.canBeConsumed
-        resolvable.attributes.getAttribute(PodmanAttributes.IMAGE_TYPE) == PodmanAttributes.IMAGE_TYPE_REFERENCE
+        resolvable.attributes.getAttribute(ContainerAttributes.IMAGE_TYPE) == ContainerAttributes.IMAGE_TYPE_REFERENCE
     }
 
     def "multiple images coexist with distinct imageName attributes and a sibling FROM is wired"() {
         given:
-        project.podman {
+        project.container {
             images {
                 base { tags = ['example/base:1.0'] }
                 app {
@@ -113,9 +113,9 @@ class PodmanImageDependencySpec extends Specification {
 
         then: 'both images produce non-colliding consumables with their own imageName'
         project.configurations.getByName('baseReferenceElements')
-                .attributes.getAttribute(PodmanAttributes.IMAGE_NAME) == 'base'
+                .attributes.getAttribute(ContainerAttributes.IMAGE_NAME) == 'base'
         project.configurations.getByName('appReferenceElements')
-                .attributes.getAttribute(PodmanAttributes.IMAGE_NAME) == 'app'
+                .attributes.getAttribute(ContainerAttributes.IMAGE_NAME) == 'app'
 
         and: 'the sibling FROM is recorded on the build task without a self-project configuration'
         def buildApp = project.tasks.getByName('buildAppImage')
@@ -125,7 +125,7 @@ class PodmanImageDependencySpec extends Specification {
 
     def "a multi-image consumable carries the default implicit project capability (no custom capability)"() {
         given:
-        project.podman { images { foo { tags = ['example/foo:1.0'] }; bar { tags = ['example/bar:1.0'] } } }
+        project.container { images { foo { tags = ['example/foo:1.0'] }; bar { tags = ['example/bar:1.0'] } } }
 
         when:
         evaluate()
