@@ -116,6 +116,14 @@ public class ContainerPlugin implements Plugin<Project> {
                 t.getFormat().convention(image.getArchiveFormat());
                 t.getOutputFile().convention(
                         layout.getBuildDirectory().file(ContainerImage.archiveFilePath(name, format)));
+                // Pin archive freshness to the image's digest: when a digest is recorded the
+                // reference file's content changes whenever the image content changes, so the
+                // save re-runs only when the image actually changed instead of going stale
+                // under a same-tag rebuild. (Reading the small file is cheap; re-saving is not.)
+                if (image.getIncludeDigest().get()) {
+                    t.getSourceReferenceFiles().from(
+                            referenceTask.flatMap(ContainerImageReferenceTask::getReferenceFile));
+                }
             });
             var archiveElements = ContainerDependencies.archiveElements(project,
                     ContainerImage.archiveElementsName(name), name, format,

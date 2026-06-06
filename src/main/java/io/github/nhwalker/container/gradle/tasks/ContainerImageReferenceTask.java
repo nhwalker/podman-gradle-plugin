@@ -43,6 +43,13 @@ public abstract class ContainerImageReferenceTask extends AbstractContainerTask 
     @SuppressWarnings("this-escape")
     public ContainerImageReferenceTask() {
         getIncludeDigest().convention(true);
+        // The digest is read from podman's mutable storage at execution time, not
+        // from any declared input, so the recorded digest can go stale if the image
+        // is rebuilt under the same tag. When a digest is recorded, never report the
+        // task up-to-date so the digest line always reflects the current image. (The
+        // coordinate-only case is a pure function of the inputs, so normal up-to-date
+        // checks apply and the file content only changes when the coordinate does.)
+        getOutputs().upToDateWhen(t -> !getIncludeDigest().get());
     }
 
     @Override
@@ -59,8 +66,8 @@ public abstract class ContainerImageReferenceTask extends AbstractContainerTask 
         if (getIncludeDigest().get() && !getDryRun().get()) {
             String digest = inspectDigest(reference);
             if (digest != null && !digest.isBlank()) {
-                String name = reference.contains(":") ? reference.substring(0, reference.lastIndexOf(':')) : reference;
-                content.append(name).append('@').append(digest.strip()).append(System.lineSeparator());
+                content.append(repositoryWithoutTag(reference)).append('@').append(digest.strip())
+                        .append(System.lineSeparator());
             }
         }
 
@@ -75,6 +82,25 @@ public abstract class ContainerImageReferenceTask extends AbstractContainerTask 
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to write image reference file " + target, e);
         }
+    }
+
+    /**
+     * Strips the {@code :tag} suffix from an image coordinate, leaving the repository
+     * to which the digest is appended ({@code repository@sha256:…}).
+     *
+     * <p>A colon denotes a tag only when it appears in the final path segment (after
+     * the last {@code /}); a colon earlier in the reference is a registry port and must
+     * be preserved. For example {@code registry:5000/app:1.0} yields
+     * {@code registry:5000/app}, while {@code registry:5000/app} (no tag) is returned
+     * unchanged.
+     */
+    static String repositoryWithoutTag(String reference) {
+        int lastSlash = reference.lastIndexOf('/');
+        int lastColon = reference.lastIndexOf(':');
+        if (lastColon > lastSlash) {
+            return reference.substring(0, lastColon);
+        }
+        return reference;
     }
 
     /** Runs {@code podman image inspect} to capture the image digest, tolerating failure. */
