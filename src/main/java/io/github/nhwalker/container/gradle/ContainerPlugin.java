@@ -1,5 +1,8 @@
 package io.github.nhwalker.container.gradle;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import javax.inject.Inject;
 
 import org.gradle.api.InvalidUserDataException;
@@ -9,6 +12,9 @@ import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.provider.Provider;
+import org.gradle.api.tasks.SourceSet;
+import org.gradle.api.tasks.SourceSetContainer;
+import org.gradle.api.tasks.TaskProvider;
 
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
 import io.github.nhwalker.container.gradle.dependency.ContainerDependencies;
@@ -17,6 +23,7 @@ import io.github.nhwalker.container.gradle.tasks.AbstractContainerTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerBuildTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerImageReferenceTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerSaveTask;
+import io.github.nhwalker.container.gradle.tasks.GenerateImageReferencesTask;
 
 /**
  * Registers the {@code container} extension, applies its configuration as conventions
@@ -40,6 +47,9 @@ public class ContainerPlugin implements Plugin<Project> {
     /** The name of the software component aggregating this project's image variants. */
     public static final String COMPONENT_NAME = "container";
 
+    /** The task that generates the {@code <ProjectName>Images} Java interface. */
+    public static final String GENERATE_JAVA_REFS_TASK = "generateImageReferences";
+
     private final SoftwareComponentFactory softwareComponentFactory;
 
     @Inject
@@ -52,6 +62,9 @@ public class ContainerPlugin implements Plugin<Project> {
         ContainerExtension extension = project.getExtensions()
                 .create(EXTENSION_NAME, ContainerExtension.class);
         extension.getExecutable().convention("podman");
+        extension.getGenerateJavaRefs().convention(false);
+        extension.getJavaRefsPackage().convention(
+                project.provider(() -> String.valueOf(project.getGroup())));
 
         project.getTasks().withType(AbstractContainerTask.class).configureEach(task -> {
             task.setGroup(TASK_GROUP);
@@ -69,10 +82,53 @@ public class ContainerPlugin implements Plugin<Project> {
 
         // Materialize each image's tasks/configs once the DSL is fully evaluated, so
         // structural decisions (e.g. whether an archive variant exists) see final values.
-        project.afterEvaluate(p -> extension.getImages().forEach(image -> registerImage(p, image, component)));
+        project.afterEvaluate(p -> {
+            List<TaskProvider<ContainerBuildTask>> buildTasks = new ArrayList<>();
+            extension.getImages().forEach(image -> buildTasks.add(registerImage(p, image, component)));
+            // When a Java plugin is applied and the user opted in, expose every image's
+            // coordinate to Java code through a generated interface, refreshed on each build.
+            if (extension.getGenerateJavaRefs().get() && p.getPluginManager().hasPlugin("java")) {
+                registerJavaRefs(p, extension, buildTasks);
+            }
+        });
     }
 
-    private void registerImage(Project project, ContainerImage image, AdhocComponentWithVariants component) {
+    private void registerJavaRefs(Project project, ContainerExtension extension,
+            List<TaskProvider<ContainerBuildTask>> buildTasks) {
+        var generateTask = project.getTasks().register(
+                GENERATE_JAVA_REFS_TASK, GenerateImageReferencesTask.class, t -> {
+                    t.setGroup(TASK_GROUP);
+                    t.setDescription("Generates the "
+                            + GenerateImageReferencesTask.interfaceName(project.getName())
+                            + " interface of built image references.");
+                    t.getProjectName().convention(project.getName());
+                    t.getPackageName().convention(extension.getJavaRefsPackage());
+                    extension.getImages().forEach(image ->
+                            t.getImages().put(image.getName(), image.getTags().map(tags -> tags.get(0))));
+                    t.getOutputDirectory().convention(project.getLayout().getBuildDirectory()
+                            .dir("generated/sources/containerImageRefs/java/main"));
+                });
+
+        // Compile the generated interface as part of the project's main sources.
+        SourceSet main = project.getExtensions().getByType(SourceSetContainer.class)
+                .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
+        main.getJava().srcDir(generateTask.flatMap(GenerateImageReferencesTask::getOutputDirectory));
+
+        // (Re)generate the interface whenever an image is built.
+        buildTasks.forEach(buildTask -> buildTask.configure(t -> t.finalizedBy(generateTask)));
+
+        // With the eclipse plugin, regenerating the classpath builds the images (which
+        // refreshes the refs); depending on the generator too guarantees the generated
+        // source folder exists before the .classpath that references it is written.
+        project.getPluginManager().withPlugin("eclipse", applied ->
+                project.getTasks().named("eclipseClasspath").configure(t -> {
+                    t.dependsOn(generateTask);
+                    buildTasks.forEach(t::dependsOn);
+                }));
+    }
+
+    private TaskProvider<ContainerBuildTask> registerImage(Project project, ContainerImage image,
+            AdhocComponentWithVariants component) {
         String name = image.getName();
         if (image.getTags().getOrElse(java.util.List.of()).isEmpty()) {
             throw new InvalidUserDataException(
@@ -81,7 +137,8 @@ public class ContainerPlugin implements Plugin<Project> {
         ProjectLayout layout = project.getLayout();
         Provider<String> primaryTag = image.getTags().map(tags -> tags.get(0));
 
-        var buildTask = project.getTasks().register(ContainerImage.buildTaskName(name), ContainerBuildTask.class, t -> {
+        TaskProvider<ContainerBuildTask> buildTask = project.getTasks().register(
+                ContainerImage.buildTaskName(name), ContainerBuildTask.class, t -> {
             t.getContainerfile().convention(image.getContainerfile());
             t.getContextDirectory().convention(image.getContextDirectory());
             t.getTags().convention(image.getTags());
@@ -130,5 +187,6 @@ public class ContainerPlugin implements Plugin<Project> {
                     saveTask.flatMap(ContainerSaveTask::getOutputFile), saveTask);
             component.addVariantsFromConfiguration(archiveElements.get(), details -> { });
         }
+        return buildTask;
     }
 }

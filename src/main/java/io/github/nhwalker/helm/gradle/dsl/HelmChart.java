@@ -152,6 +152,11 @@ public abstract class HelmChart implements Named {
         return "helm/" + chart + "/" + chart + ".tgz";
     }
 
+    /** The classpath resource path the packaged chart is bundled at inside the jar. */
+    public static String jarResourcePath(String chart) {
+        return "charts/" + chart + ".tgz";
+    }
+
     private static String capitalize(String value) {
         if (value == null || value.isEmpty()) {
             return value;
