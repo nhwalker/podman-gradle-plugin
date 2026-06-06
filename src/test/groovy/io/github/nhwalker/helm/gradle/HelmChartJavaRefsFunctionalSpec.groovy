@@ -165,12 +165,16 @@ exit 0
         then:
         result.task(':packageApiChart').outcome == SUCCESS
         result.task(':generateChartReferences').outcome == SUCCESS
+        result.task(':stageChartResources').outcome == SUCCESS
         result.task(':eclipseClasspath').outcome == SUCCESS
 
-        and:
+        and: 'the generated source folder and the staged chart resource folder are both on the classpath'
         new File(dir,
                 'build/generated/sources/helmChartRefs/java/main/com/example/FixtureCharts.java').exists()
-        new File(dir, '.classpath').text.contains('build/generated/sources/helmChartRefs/java/main')
+        new File(dir, 'build/generated/resources/helmCharts/main/charts/api.tgz').exists()
+        def classpath = new File(dir, '.classpath').text
+        classpath.contains('build/generated/sources/helmChartRefs/java/main')
+        classpath.contains('build/generated/resources/helmCharts/main')
     }
 
     def "no interface is generated unless generateJavaRefs is enabled"() {

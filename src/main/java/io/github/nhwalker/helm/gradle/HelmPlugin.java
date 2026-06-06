@@ -12,7 +12,7 @@ import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.provider.Provider;
-import org.gradle.api.tasks.Copy;
+import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.TaskProvider;
@@ -49,6 +49,9 @@ public class HelmPlugin implements Plugin<Project> {
 
     /** The task that generates the {@code <ProjectName>Charts} Java interface. */
     public static final String GENERATE_JAVA_REFS_TASK = "generateChartReferences";
+
+    /** The task that stages packaged charts as jar resources under {@code charts/}. */
+    public static final String STAGE_JAVA_RESOURCES_TASK = "stageChartResources";
 
     private final SoftwareComponentFactory softwareComponentFactory;
 
@@ -114,21 +117,33 @@ public class HelmPlugin implements Plugin<Project> {
                 .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
         main.getJava().srcDir(generateTask.flatMap(GenerateChartReferencesTask::getOutputDirectory));
 
-        // Bundle each packaged chart into the jar under charts/, matching the resource
-        // paths the generated interface exposes.
-        project.getTasks().named(main.getProcessResourcesTaskName(), Copy.class, t ->
-                packageTasks.forEach(pkg -> t.from(pkg.flatMap(HelmPackageTask::getPackagedChart),
-                        spec -> spec.into("charts"))));
+        // Stage each packaged chart into a generated resource root laid out as
+        // charts/<chart>.tgz, then register that root as a main resource directory.
+        // This bundles the charts in the jar at the resource paths the interface
+        // exposes *and* surfaces them as a resource folder on the eclipse classpath
+        // (so they are available when running inside the IDE), unlike a plain
+        // processResources copy which only feeds Gradle's own resource output.
+        Provider<Directory> resourceRoot = project.getLayout().getBuildDirectory()
+                .dir("generated/resources/helmCharts/main");
+        var stageResources = project.getTasks().register(STAGE_JAVA_RESOURCES_TASK, Sync.class, t -> {
+            t.setGroup(TASK_GROUP);
+            t.setDescription("Stages packaged charts as jar resources under charts/.");
+            t.into(resourceRoot);
+            packageTasks.forEach(pkg -> t.from(pkg.flatMap(HelmPackageTask::getPackagedChart),
+                    spec -> spec.into("charts")));
+        });
+        main.getResources().srcDir(stageResources.map(t -> t.getDestinationDir()));
 
         // (Re)generate the interface whenever a chart is packaged.
         packageTasks.forEach(pkg -> pkg.configure(t -> t.finalizedBy(generateTask)));
 
         // With the eclipse plugin, regenerating the classpath packages the charts (which
-        // refreshes the refs); depending on the generator too guarantees the generated
-        // source folder exists before the .classpath that references it is written.
+        // refreshes the refs and stages the resources); depending on the generator and
+        // the staging task guarantees the generated source and resource folders exist
+        // before the .classpath that references them is written.
         project.getPluginManager().withPlugin("eclipse", applied ->
                 project.getTasks().named("eclipseClasspath").configure(t -> {
-                    t.dependsOn(generateTask);
+                    t.dependsOn(generateTask, stageResources);
                     packageTasks.forEach(t::dependsOn);
                 }));
     }

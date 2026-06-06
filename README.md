@@ -798,14 +798,17 @@ as container images — `from components.helm` in a `MavenPublication`.
 
 ### Bundling charts in the jar and exposing them to Java (`generateJavaRefs`)
 
-When a Java plugin is applied and `generateJavaRefs = true`, the plugin bundles each
-packaged chart into the jar at `charts/<chart>.tgz` and generates a `<ProjectName>Charts`
-interface holding each chart's classpath resource path as a `public static final String`
-constant. The constant name is the chart name in `UPPER_SNAKE_CASE`. The interface is
-added to the `main` source set (so it compiles with your code) and is regenerated
-whenever a chart is packaged. When the `eclipse` plugin is also applied,
-`eclipseClasspath` packages the charts and regenerates the refs, mirroring the
-container plugin.
+When a Java plugin is applied and `generateJavaRefs = true`, the plugin stages each
+packaged chart into a generated resource folder laid out as `charts/<chart>.tgz` and
+registers it as a `main` resource directory — so the chart ships in the jar at that
+path *and* appears as a resource source folder (available when running inside the IDE).
+It also generates a `<ProjectName>Charts` interface holding each chart's classpath
+resource path as a `public static final String` constant (the constant name is the
+chart name in `UPPER_SNAKE_CASE`), added to the `main` source set so it compiles with
+your code. Both are regenerated whenever a chart is packaged. When the `eclipse` plugin
+is also applied, `eclipseClasspath` packages the charts, regenerates the refs, and
+stages the resources, so the `.classpath` carries both the generated source folder and
+the chart resource folder — mirroring the container plugin.
 
 ```groovy
 plugins { id 'java'; id 'io.github.nhwalker.helm' }
