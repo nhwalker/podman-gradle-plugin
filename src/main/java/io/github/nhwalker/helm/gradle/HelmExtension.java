@@ -53,6 +53,22 @@ public abstract class HelmExtension {
      */
     public abstract ListProperty<String> getGlobalOptions();
 
+    /**
+     * When {@code true} and a Java plugin is applied, the plugin bundles each packaged
+     * chart into the jar at {@code charts/<chart>.tgz} and generates a
+     * {@code <ProjectName>Charts} Java interface exposing those resource paths as
+     * {@code public static final String} constants named after the chart in
+     * UPPER_SNAKE_CASE. The interface is added to the {@code main} source set and
+     * (re)generated whenever a chart is packaged. Defaults to {@code false}.
+     */
+    public abstract Property<Boolean> getGenerateJavaRefs();
+
+    /**
+     * The package the generated {@code <ProjectName>Charts} interface is placed into.
+     * Defaults to the project group; when blank the default package is used.
+     */
+    public abstract Property<String> getJavaRefsPackage();
+
     /** The charts declared for this project. */
     public NamedDomainObjectContainer<HelmChart> getCharts() {
         return charts;
