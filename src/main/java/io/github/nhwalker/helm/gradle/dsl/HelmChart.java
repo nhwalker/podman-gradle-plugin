@@ -1,0 +1,161 @@
+package io.github.nhwalker.helm.gradle.dsl;
+
+import javax.inject.Inject;
+
+import org.gradle.api.Named;
+import org.gradle.api.NamedDomainObjectProvider;
+import org.gradle.api.Project;
+import org.gradle.api.artifacts.DependencyScopeConfiguration;
+import org.gradle.api.artifacts.ResolvableConfiguration;
+import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.provider.MapProperty;
+import org.gradle.api.provider.Property;
+
+import io.github.nhwalker.helm.gradle.dependency.HelmDependencies;
+
+/**
+ * A single chart declared in the {@code helm { charts { } }} container.
+ *
+ * <p>For each chart the plugin registers a stage task (assembling the chart and
+ * its subchart dependencies), a package task, an optional lint task, and the
+ * consumable configuration other projects resolve against.
+ *
+ * <p>Use {@code from(...)} to declare a subchart dependency; the resolved chart
+ * archive is staged into this chart's {@code charts/} directory before packaging,
+ * and the producer is built first:
+ * <pre>
+ * helm { charts {
+ *     base { chartDirectory = layout.projectDirectory.dir('charts/base') }
+ *     umbrella {
+ *         chartDirectory = layout.projectDirectory.dir('charts/umbrella')
+ *         from charts.base                              // intra-project
+ *         // or: from project(':other')                 // same build, another project
+ *         // or: from 'com.example:billing-chart:1.4.0' // external / composite
+ *         // or: from(project(':services'), 'api')      // pin one chart of a multi-chart producer
+ *     }
+ * } }
+ * </pre>
+ */
+public abstract class HelmChart implements Named {
+
+    private final String name;
+    private final Project project;
+    private int subchartCounter;
+
+    @Inject
+    @SuppressWarnings("this-escape")
+    public HelmChart(String name, Project project) {
+        this.name = name;
+        this.project = project;
+        getChartDirectory().convention(
+                project.getLayout().getProjectDirectory().dir("src/main/helm/" + name));
+        getLint().convention(true);
+        getUpdateDependencies().convention(false);
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    /** The chart directory containing {@code Chart.yaml}. Defaults to {@code src/main/helm/<name>}. */
+    public abstract DirectoryProperty getChartDirectory();
+
+    /** Override the chart version ({@code helm package --version}). */
+    public abstract Property<String> getChartVersion();
+
+    /** Override the chart {@code appVersion} ({@code helm package --app-version}). */
+    public abstract Property<String> getAppVersion();
+
+    /** Whether to register a lint task for this chart. Defaults to {@code true}. */
+    public abstract Property<Boolean> getLint();
+
+    /** Update {@code Chart.yaml} dependencies before packaging ({@code -u}). Defaults to {@code false}. */
+    public abstract Property<Boolean> getUpdateDependencies();
+
+    /**
+     * Build-time values injected before packaging. Each entry replaces the
+     * placeholder <code>{{ .PreValues.&lt;key&gt; }}</code> (whitespace inside the
+     * braces is ignored) wherever it appears in the chart's {@code Chart.yaml} and
+     * {@code values.yaml}:
+     * <pre>
+     * helm { charts { api {
+     *     preValues = ['ChartVersion': project.version.toString(), 'AppTag': 'abc123']
+     * } } }
+     * </pre>
+     * with {@code Chart.yaml} containing {@code version: {{ .PreValues.ChartVersion }}}.
+     */
+    public abstract MapProperty<String, String> getPreValues();
+
+    /** The resolved subchart archives declared via {@code from(...)}. Staged into {@code charts/}. */
+    public abstract ConfigurableFileCollection getSubchartFiles();
+
+    // ---- subchart declarations --------------------------------------------------
+
+    /** Declares a subchart dependency from another project or an external coordinate. */
+    public void from(Object dependencyNotation) {
+        from(dependencyNotation, null);
+    }
+
+    /**
+     * Declares a subchart dependency, selecting a specific chart by name out of a
+     * producer that publishes several under one coordinate.
+     */
+    public void from(Object dependencyNotation, String chartName) {
+        String token = "Subchart" + (subchartCounter++);
+        NamedDomainObjectProvider<DependencyScopeConfiguration> bucket =
+                HelmDependencies.subchartBucket(project, name + "Dep" + token);
+        project.getDependencies().add(bucket.getName(), dependencyNotation);
+        NamedDomainObjectProvider<ResolvableConfiguration> resolvable =
+                HelmDependencies.resolvablePackages(project, name + "Refs" + token, bucket, chartName);
+        getSubchartFiles().from(resolvable);
+    }
+
+    /** Declares a subchart that is a sibling chart in the same project. */
+    public void from(HelmChart sibling) {
+        getSubchartFiles().from(
+                project.getLayout().getBuildDirectory().file(packagedChartPath(sibling.getName())));
+        getSubchartFiles().builtBy(packageTaskName(sibling.getName()));
+    }
+
+    /** Alias for {@link #from(Object)}. */
+    public void subchart(Object dependencyNotation) {
+        from(dependencyNotation);
+    }
+
+    // ---- naming helpers (shared with the plugin reaction) -----------------------
+
+    public static String stageTaskName(String chart) {
+        return "stage" + capitalize(chart) + "Chart";
+    }
+
+    public static String packageTaskName(String chart) {
+        return "package" + capitalize(chart) + "Chart";
+    }
+
+    public static String lintTaskName(String chart) {
+        return "lint" + capitalize(chart) + "Chart";
+    }
+
+    public static String packageElementsName(String chart) {
+        return chart + "PackageElements";
+    }
+
+    /** The build-relative directory the chart is staged into before packaging. */
+    public static String stagedChartPath(String chart) {
+        return "helm/" + chart + "/staged";
+    }
+
+    /** The build-relative path of a chart's packaged archive. */
+    public static String packagedChartPath(String chart) {
+        return "helm/" + chart + "/" + chart + ".tgz";
+    }
+
+    private static String capitalize(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+    }
+}
