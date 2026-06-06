@@ -325,7 +325,14 @@ honestly through its input/output annotations:
   plugin deliberately does not snapshot it.
 - **`ContainerSaveTask` declares its archive as `@OutputFile`** and `ContainerLoadTask`
   declares its `@InputFile`. These produce/consume real files, so they *do*
-  participate in up-to-date checks and can be skipped when nothing changed.
+  participate in up-to-date checks and can be skipped when nothing changed. Because
+  `podman save` serializes podman-side state that Gradle can't snapshot, keying the
+  task on the image *tag* alone would let the archive go stale after a same-tag
+  rebuild. When you declare an image through `images { }` with `includeDigest` (the
+  default), the plugin wires that image's reference file — whose digest line is
+  refreshed every build — into the save task as a content-identity input, so the
+  archive is re-saved exactly when the image content changes and stays up-to-date
+  otherwise.
 
 If you want a different policy (e.g. force a save to always run), use the standard
 Gradle levers like `outputs.upToDateWhen { false }` on your task.

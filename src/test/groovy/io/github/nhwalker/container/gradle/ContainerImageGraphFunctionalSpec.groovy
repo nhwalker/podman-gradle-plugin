@@ -5,6 +5,7 @@ import spock.lang.Specification
 import spock.lang.TempDir
 
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
+import static org.gradle.testkit.runner.TaskOutcome.UP_TO_DATE
 
 /**
  * Functional tests for cross-project image dependencies: build ordering and
@@ -151,6 +152,55 @@ exit 0
         module.contains('"io.github.nhwalker.container.imageName": "bar"')
         module.contains('"io.github.nhwalker.container.imageType": "reference"')
         module.contains('"io.github.nhwalker.container.imageType": "archive"')
+    }
+
+    def "the archive is re-saved only when the image content (digest) changes"() {
+        given: 'a fake podman whose inspect digest is read from a controllable file'
+        def digestFile = new File(dir, 'digest.txt')
+        digestFile.text = 'sha256:aaaa'
+        def fake = new File(dir, 'fake-podman')
+        fake << """#!/usr/bin/env sh
+echo "\$@" >> '${argsLog.absolutePath}'
+if [ "\$1" = "image" ] && [ "\$2" = "inspect" ]; then cat '${digestFile.absolutePath}'; fi
+if [ "\$1" = "save" ]; then
+  prev=""
+  for a in "\$@"; do
+    if [ "\$prev" = "-o" ]; then : > "\$a"; fi
+    prev="\$a"
+  done
+fi
+exit 0
+"""
+        fake.setExecutable(true)
+
+        new File(dir, 'settings.gradle') << "rootProject.name='archive'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.container' }
+            container {
+                executable = '${fake.absolutePath}'
+                images { app { tags = ['app:1']; createArchive = true } }
+            }
+        """
+
+        when: 'the archive is saved for the first time'
+        def first = runner(dir, 'saveAppImage').build()
+
+        then:
+        first.task(':saveAppImage').outcome == SUCCESS
+
+        when: 'nothing changed — the image content (digest) is identical'
+        def second = runner(dir, 'saveAppImage').build()
+
+        then: 'the reference always refreshes the digest, but the archive is not re-saved'
+        second.task(':writeAppImageReference').outcome == SUCCESS
+        second.task(':saveAppImage').outcome == UP_TO_DATE
+
+        when: 'the image content changes (a new digest under the same tag)'
+        digestFile.text = 'sha256:bbbb'
+        def third = runner(dir, 'saveAppImage').build()
+
+        then: 'the archive is re-saved'
+        third.task(':saveAppImage').outcome == SUCCESS
     }
 
     def "a composite build substitutes an external coordinate with an included project, no substitution rules"() {
