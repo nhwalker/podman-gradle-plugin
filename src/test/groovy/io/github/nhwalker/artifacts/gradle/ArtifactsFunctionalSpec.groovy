@@ -241,6 +241,36 @@ class ArtifactsFunctionalSpec extends Specification {
         new File(consumer, 'build/resolved.txt').text == 'repo-report'
     }
 
+    def "exposes and consumes an application distribution archive as a generic artifact"() {
+        given: 'an application project that publishes its distZip as a generic artifact'
+        new File(dir, 'settings.gradle') << "rootProject.name='distmix'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'application'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'; version = '1.0'
+            application { mainClass = 'com.example.Main' }
+            genericArtifacts { produce { dist { classifier = 'dist'; artifact tasks.distZip.archiveFile } } }
+        """
+        new File(dir, 'producer/src/main/java/com/example').mkdirs()
+        new File(dir, 'producer/src/main/java/com/example/Main.java') <<
+                'package com.example; public class Main { public static void main(String[] a) {} }\n'
+
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            genericArtifacts { consume { theDist { from project(':producer'); classifier = 'dist' } } }
+            tasks.register('grab', Copy) { from genericArtifacts.consume.theDist.files; into layout.buildDirectory.dir('out') }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:grab').build()
+
+        then: 'distZip ran (wired as a build dependency) and classifier=dist selected the zip amid the JVM variants'
+        result.task(':producer:distZip').outcome == SUCCESS
+        result.task(':consumer:grab').outcome == SUCCESS
+        new File(dir, 'consumer/build/out').listFiles().any { it.name.endsWith('.zip') }
+    }
+
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {
         given: 'a standalone producer build addressed by group:name'
         def cp = pluginClasspathFilesLiteral()

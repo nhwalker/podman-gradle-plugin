@@ -954,6 +954,30 @@ publishing { publications { maven(MavenPublication) { from components.genericArt
 The whole project publishes as one module whose Gradle Module Metadata carries each
 produced artifact as an attribute-selected variant with a distinct classifier.
 
+#### Application & distribution archives
+
+The `application` and `distribution` plugins do **not** expose their `.zip`/`.tar`
+archives as attribute-selectable variants — the archives sit only in the legacy,
+attribute-less `archives` configuration (mixed in with the jar), so there is no native
+attribute (and thus no preset) to target them by. The clean, composite-safe way to share
+a distribution is to publish it as a generic artifact: the `distZip`/`distTar` tasks
+expose a `Provider<RegularFile>` that already carries their build dependency, so it's a
+one-liner with the existing `produce` API:
+
+```groovy
+plugins { id 'application'; id 'io.github.nhwalker.artifacts' }
+
+genericArtifacts {
+    produce {
+        dist { classifier = 'dist'; artifact tasks.distZip.archiveFile }
+    }
+}
+```
+
+Consumers then select it with the normal API — `consume { theDist { from project(':app'); classifier = 'dist' } }` —
+composite-safe and publishable, and `classifier = 'dist'` cleanly picks it even though
+the module also publishes the usual `apiElements`/`runtimeElements` JVM variants.
+
 ### Consuming artifacts
 
 Declare dependencies under `genericArtifacts { consume { } }`. Each element exposes the
