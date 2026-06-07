@@ -333,10 +333,9 @@ honestly through its input/output annotations:
   `podman save` serializes podman-side state that Gradle can't snapshot, keying the
   task on the image *tag* alone would let the archive go stale after a same-tag
   rebuild. When you declare an image through `images { }` with `includeDigest` (the
-  default), the plugin wires that image's reference file — whose digest line is
-  refreshed every build — into the save task as a content-identity input, so the
-  archive is re-saved exactly when the image content changes and stays up-to-date
-  otherwise.
+  default), the plugin wires that image's reference file — whose digest is refreshed
+  every build — into the save task as a content-identity input, so the archive is
+  re-saved exactly when the image content changes and stays up-to-date otherwise.
 
 If you want a different policy (e.g. force a save to always run), use the standard
 Gradle levers like `outputs.upToDateWhen { false }` on your task.
@@ -521,9 +520,10 @@ jars:
   (reference vs. archive) by `imageType` (and `archiveFormat`). So one project can publish
   several images under one coordinate, each an attribute-selected variant with its own
   artifact classifier.
-- The **reference** variant is a small file holding the image coordinate (`name:tag`) and,
-  by default, its digest (`name@sha256:…`) — a coordinate pointer; the image itself stays
-  in podman's local storage. The **archive** variant carries the actual `podman save` tar.
+- The **reference** variant is a small file holding a single-line image reference — the
+  coordinate `name:tag`, with the digest appended in place by default to give the canonical
+  `name:tag@sha256:…` form — a coordinate pointer; the image itself stays in podman's local
+  storage. The **archive** variant carries the actual `podman save` tar.
 
 Images are published and consumed as **generic artifacts** — they reuse the
 `io.github.nhwalker.artifacts` plugin's model. The variant's Maven classifier is
@@ -605,7 +605,7 @@ genericArtifacts {
         }
     }
 }
-// a push task reads each file's first line (the coordinate) from genericArtifacts.consume.allRefs.files
+// a push task reads each file's single line (name:tag@sha256:…) from genericArtifacts.consume.allRefs.files
 ```
 
 ### Publishing
@@ -1077,8 +1077,8 @@ genericArtifacts {
     consume    { appRef   { from project(':app'); classifier = 'app-reference' } }
     references { appImage { fromFile genericArtifacts.consume.appRef.files } }
 }
-// -> public static final String APP_IMAGE = "registry.example.com/app:1.0";
-//    (a two-line ref file — coordinate + digest — becomes a """ text block """ instead)
+// -> public static final String APP_IMAGE = "registry.example.com/app:1.0@sha256:…";
+//    (the reference is a single line: name:tag with the digest appended in place by default)
 ```
 
 `fromFile` is fully generic: point it at any text document (a generated manifest, a license, a

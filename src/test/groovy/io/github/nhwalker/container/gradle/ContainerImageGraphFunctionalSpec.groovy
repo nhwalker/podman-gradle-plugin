@@ -62,6 +62,48 @@ exit 0
         argsLog = new File(dir, 'podman-args.log')
     }
 
+    def "the reference file is a single line of the form tag@digest"() {
+        given:
+        def fake = fakeContainer(dir)
+        new File(dir, 'settings.gradle') << "rootProject.name='ref'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.container' }
+            container {
+                executable = '${fake.absolutePath}'
+                images { app { tags = ['registry.example.com/app:1.0'] } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'writeAppImageReference').build()
+
+        then: 'a single line: the full coordinate with the digest appended in place'
+        result.task(':writeAppImageReference').outcome == SUCCESS
+        new File(dir, 'build/container/app/image-ref.txt').readLines() ==
+                ['registry.example.com/app:1.0@sha256:deadbeef']
+    }
+
+    def "the reference file omits the digest when includeDigest is false"() {
+        given:
+        def fake = fakeContainer(dir)
+        new File(dir, 'settings.gradle') << "rootProject.name='ref'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.container' }
+            container {
+                executable = '${fake.absolutePath}'
+                images { app { tags = ['registry.example.com/app:1.0']; includeDigest = false } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'writeAppImageReference').build()
+
+        then: 'just the coordinate, still a single line'
+        result.task(':writeAppImageReference').outcome == SUCCESS
+        new File(dir, 'build/container/app/image-ref.txt').readLines() ==
+                ['registry.example.com/app:1.0']
+    }
+
     def "builds base before app and injects the resolved base reference as a build-arg"() {
         given:
         def fake = fakeContainer(dir)

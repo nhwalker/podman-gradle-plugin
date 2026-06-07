@@ -214,7 +214,7 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                images { app { tags = ['example/app:1.0']; includeDigest = false } }
+                images { app { tags = ['example/app:1.0'] } }   // includeDigest defaults to true
             }
             genericArtifacts {
                 generateReferences = true
@@ -231,8 +231,8 @@ exit 0
         result.task(':writeAppImageReference').outcome == SUCCESS
         result.task(':generateArtifactReferences').outcome == SUCCESS
 
-        and: 'the published reference contents land in the generated constant'
+        and: 'the single-line tag@digest reference lands verbatim in the generated constant'
         new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
-                .text.contains('public static final String APP_IMAGE = "example/app:1.0";')
+                .text.contains('public static final String APP_IMAGE = "example/app:1.0@sha256:deadbeef";')
     }
 }
