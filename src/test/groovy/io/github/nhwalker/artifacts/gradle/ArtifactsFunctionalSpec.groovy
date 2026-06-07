@@ -241,6 +241,72 @@ class ArtifactsFunctionalSpec extends Specification {
         new File(consumer, 'build/resolved.txt').text == 'repo-report'
     }
 
+    def "downloadTask stages the resolved artifact into build/inputs/<name>"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='dl'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            ${producerBody('staged-report')}
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theReport { from project(':producer'); classifier = 'report'; downloadTask() } }
+            }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:downloadTheReport').build()
+
+        then: 'the producing task ran (wired) and the file landed in the default directory'
+        result.task(':producer:makeReport').outcome == SUCCESS
+        result.task(':consumer:downloadTheReport').outcome == SUCCESS
+        new File(dir, 'consumer/build/inputs/theReport/report.txt').text == 'staged-report'
+    }
+
+    def "unpackTask extracts a resolved zip archive, and is configuration-cache compatible"() {
+        given: 'a producer that publishes a zip containing hello.txt as a generic artifact'
+        new File(dir, 'settings.gradle') << "rootProject.name='unpack'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'; version = '1.0'
+            def payload = layout.buildDirectory.file('payload/hello.txt')
+            tasks.register('makePayload') { outputs.file(payload); doLast { payload.get().asFile.text = 'inside-zip' } }
+            tasks.register('makeZip', Zip) {
+                dependsOn 'makePayload'
+                archiveFileName = 'bundle.zip'
+                destinationDirectory = layout.buildDirectory.dir('dist')
+                from payload
+            }
+            genericArtifacts { produce { bundle { classifier = 'bundle'; artifact tasks.makeZip.archiveFile } } }
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theBundle { from project(':producer'); classifier = 'bundle'; unpackTask() } }
+            }
+        """
+
+        when:
+        def first = runner(dir, ':consumer:unpackTheBundle', '--configuration-cache').build()
+
+        then: 'the producing zip task ran and the archive contents were extracted'
+        first.task(':producer:makeZip').outcome == SUCCESS
+        first.task(':consumer:unpackTheBundle').outcome == SUCCESS
+        new File(dir, 'consumer/build/inputs/theBundle/hello.txt').text == 'inside-zip'
+
+        when:
+        def second = runner(dir, ':consumer:unpackTheBundle', '--configuration-cache').build()
+
+        then:
+        second.output.contains('Reusing configuration cache.')
+        new File(dir, 'consumer/build/inputs/theBundle/hello.txt').text == 'inside-zip'
+    }
+
     def "exposes and consumes an application distribution archive as a generic artifact"() {
         given: 'an application project that publishes its distZip as a generic artifact'
         new File(dir, 'settings.gradle') << "rootProject.name='distmix'\ninclude ':producer', ':consumer'\n"

@@ -191,6 +191,24 @@ class ArtifactsPluginSpec extends Specification {
         docs.getAttribute(ArtifactsAttributes.freeAttribute('org.gradle.docstype')) == 'javadoc'
     }
 
+    def "downloadTask/unpackTask register Sync tasks defaulting to build/inputs/<name>, honoring custom into"() {
+        given:
+        project.genericArtifacts { consume { theReport { from 'com.example:lib:1.0'; classifier = 'report' } } }
+        def consumer = project.genericArtifacts.consume.theReport
+
+        when:
+        def dl = consumer.downloadTask()
+        consumer.unpackTask { into project.layout.buildDirectory.dir('custom') }
+
+        then:
+        dl.get() instanceof org.gradle.api.tasks.Sync
+        project.tasks.getByName('downloadTheReport').destinationDir ==
+                project.layout.buildDirectory.dir('inputs/theReport').get().asFile
+        project.tasks.getByName('unpackTheReport') instanceof org.gradle.api.tasks.Sync
+        project.tasks.getByName('unpackTheReport').destinationDir ==
+                project.layout.buildDirectory.dir('custom').get().asFile
+    }
+
     def "a consumer can request native (non-namespaced) attributes for selecting a JVM variant"() {
         given:
         project.genericArtifacts {

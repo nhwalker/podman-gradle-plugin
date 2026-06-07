@@ -1,16 +1,26 @@
 package io.github.nhwalker.artifacts.gradle.dsl;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 import javax.inject.Inject;
 
+import org.gradle.api.Action;
 import org.gradle.api.Named;
+import org.gradle.api.Project;
 import org.gradle.api.attributes.Category;
 import org.gradle.api.attributes.DocsType;
+import org.gradle.api.file.ArchiveOperations;
 import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.FileTree;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
+import org.gradle.api.provider.Provider;
+import org.gradle.api.tasks.Sync;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
  * A single artifact dependency declared in {@code genericArtifacts { consume { } }}.
@@ -44,16 +54,38 @@ import org.gradle.api.provider.Property;
  * }}
  * tasks.register('useReport') { inputs.files genericArtifacts.consume.theReport.files }
  * </pre>
+ *
+ * <p>For the common case of materializing the resolved files on disk, {@link #downloadTask}
+ * and {@link #unpackTask} register a {@code Sync} task that stages the artifact (or its
+ * extracted archive contents) into {@code build/inputs/<name>} by default:
+ * <pre>
+ * genericArtifacts { consume {
+ *     theDist {
+ *         from 'com.example:app:1.0'; classifier = 'dist'
+ *         unpackTask { into layout.buildDirectory.dir('app') }   // configure the Sync
+ *     }
+ * }}
+ * tasks.named('assembleSomething') { dependsOn genericArtifacts.consume.theDist.unpackTask() }
+ * </pre>
  */
 public abstract class ConsumedArtifact implements Named {
 
+    /** Task group for the tasks registered by {@link #downloadTask}/{@link #unpackTask}. */
+    public static final String TASK_GROUP = "generic artifacts";
+
     private final String name;
+    private final Project project;
     private final List<Object> dependencyNotations = new ArrayList<>();
 
     @Inject
-    public ConsumedArtifact(String name) {
+    public ConsumedArtifact(String name, Project project) {
         this.name = name;
+        this.project = project;
     }
+
+    /** Injected so archive expansion in {@link #unpackTask} stays configuration-cache safe. */
+    @Inject
+    protected abstract ArchiveOperations getArchiveOperations();
 
     @Override
     public String getName() {
@@ -117,5 +149,85 @@ public abstract class ConsumedArtifact implements Named {
     /** The dependency notations recorded by {@link #from}; read by the plugin in {@code afterEvaluate}. */
     public List<Object> getDependencyNotations() {
         return dependencyNotations;
+    }
+
+    // ---- staging tasks ----------------------------------------------------------
+
+    /** Registers a {@code Sync} task staging the resolved files into {@code build/inputs/<name>}. */
+    public TaskProvider<Sync> downloadTask() {
+        return downloadTask(task -> { });
+    }
+
+    /**
+     * Registers a {@code Sync} task that stages the resolved artifact files into a directory
+     * ({@code build/inputs/<name>} by default), then applies {@code configuration} so callers
+     * can change the destination, add {@code dependsOn}, or wire other tasks to depend on it.
+     * The producing task is wired automatically via the resolved files' build dependencies.
+     */
+    public TaskProvider<Sync> downloadTask(Action<? super Sync> configuration) {
+        return project.getTasks().register(downloadTaskName(name), Sync.class, task -> {
+            task.setGroup(TASK_GROUP);
+            task.setDescription("Stages the '" + name + "' consumed artifact into a directory.");
+            task.into(defaultDestination());
+            task.from(getFiles());
+            configuration.execute(task);
+        });
+    }
+
+    /** Registers a {@code Sync} task extracting the resolved archive(s) into {@code build/inputs/<name>}. */
+    public TaskProvider<Sync> unpackTask() {
+        return unpackTask(task -> { });
+    }
+
+    /**
+     * Registers a {@code Sync} task that extracts the contents of the resolved zip/tar
+     * archive(s) into a directory ({@code build/inputs/<name>} by default), then applies
+     * {@code configuration}. The archive format is detected per file from its extension.
+     */
+    public TaskProvider<Sync> unpackTask(Action<? super Sync> configuration) {
+        // Capture the service + file collection (not `this`) so the lazy source is CC-safe.
+        ArchiveOperations archives = getArchiveOperations();
+        ConfigurableFileCollection files = getFiles();
+        Provider<List<FileTree>> trees = files.getElements().map(locations ->
+                locations.stream()
+                        .map(location -> {
+                            File archive = location.getAsFile();
+                            return isTarArchive(archive.getName())
+                                    ? archives.tarTree(archive) : archives.zipTree(archive);
+                        })
+                        .collect(Collectors.toList()));
+        return project.getTasks().register(unpackTaskName(name), Sync.class, task -> {
+            task.setGroup(TASK_GROUP);
+            task.setDescription("Unpacks the '" + name + "' consumed archive into a directory.");
+            task.dependsOn(files);
+            task.into(defaultDestination());
+            task.from(trees);
+            configuration.execute(task);
+        });
+    }
+
+    private Provider<org.gradle.api.file.Directory> defaultDestination() {
+        return project.getLayout().getBuildDirectory().dir("inputs/" + name);
+    }
+
+    public static String downloadTaskName(String name) {
+        return "download" + capitalize(name);
+    }
+
+    public static String unpackTaskName(String name) {
+        return "unpack" + capitalize(name);
+    }
+
+    private static boolean isTarArchive(String fileName) {
+        String lower = fileName.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".tar") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz")
+                || lower.endsWith(".tar.bz2") || lower.endsWith(".tbz2");
+    }
+
+    private static String capitalize(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 }
