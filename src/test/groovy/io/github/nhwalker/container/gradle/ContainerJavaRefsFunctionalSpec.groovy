@@ -69,8 +69,8 @@ exit 0
         def text = generated.text
         text.contains('package com.example;')
         text.contains('public interface FixtureImages')
-        text.contains('public static final String APP = "example/app:1.0";')
-        text.contains('public static final String WEB_SERVER = "example/web:2.0";')
+        text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0");')
+        text.contains('public static final String WEB_SERVER = FixtureImagesLoader.load("WEB_SERVER", "example/web:2.0");')
     }
 
     def "the generated interface is compiled with the project's main sources"() {
@@ -180,9 +180,9 @@ exit 0
         result.task(':generateArtifactReferences').outcome == SUCCESS
         result.task(':compileJava').outcome == SUCCESS
         new File(dir, 'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java')
-                .text.contains('public static final String APP = "example/app:1.0";')
+                .text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0");')
         new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
-                .text.contains('public static final String API_BASE_URL = "https://api.example.com";')
+                .text.contains('public static final String API_BASE_URL = FixtureReferencesLoader.load("API_BASE_URL", "https://api.example.com");')
     }
 
     def "the generated interface name is customizable"() {
@@ -233,6 +233,6 @@ exit 0
 
         and: 'the single-line tag@digest reference lands verbatim in the generated constant'
         new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
-                .text.contains('public static final String APP_IMAGE = "example/app:1.0@sha256:deadbeef";')
+                .text.contains('public static final String APP_IMAGE = FixtureReferencesLoader.load("APP_IMAGE", "example/app:1.0@sha256:deadbeef");')
     }
 }

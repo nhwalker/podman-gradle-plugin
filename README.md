@@ -681,10 +681,15 @@ package com.example;
 
 // Generated. Do not edit.
 public interface FixtureImages {
-    public static final String APP = "example/app:1.0";
-    public static final String WEB_SERVER = "example/web:2.0";
+    public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0");
+    public static final String WEB_SERVER = FixtureImagesLoader.load("WEB_SERVER", "example/web:2.0");
+    // … plus a private nested FixtureImagesLoader (omitted) that resolves each value at runtime.
 }
 ```
+
+Each constant resolves its value at class-init time, falling back to the generated default — so a
+deployment can redirect an image coordinate without recompiling. See
+[Overriding generated values at runtime](#overriding-generated-values-at-runtime).
 
 Each plugin names its interface `<ProjectName><Domain>` with its own `<Domain>` segment —
 `Images` here, `Charts` for helm, `References` for generic-artifacts — so the three never
@@ -865,12 +870,17 @@ package com.example;
 
 // Generated. Do not edit.
 public interface FixtureCharts {
-    public static final String API = "charts/api.tgz";
-    public static final String WEB_PROXY = "charts/webProxy.tgz";
+    public static final String API = FixtureChartsLoader.load("API", "charts/api.tgz");
+    public static final String WEB_PROXY = FixtureChartsLoader.load("WEB_PROXY", "charts/webProxy.tgz");
+    // … plus a private nested FixtureChartsLoader (omitted) that resolves each value at runtime.
 }
 
 // e.g. getClass().getClassLoader().getResourceAsStream(FixtureCharts.API)
 ```
+
+Each constant resolves its value at class-init time, falling back to the generated default; a
+chart's resource path can be overridden at runtime. See
+[Overriding generated values at runtime](#overriding-generated-values-at-runtime).
 
 ### Manual task types (no DSL)
 
@@ -1077,12 +1087,52 @@ genericArtifacts {
     consume    { appRef   { from project(':app'); classifier = 'app-reference' } }
     references { appImage { fromFile genericArtifacts.consume.appRef.files } }
 }
-// -> public static final String APP_IMAGE = "registry.example.com/app:1.0@sha256:…";
+// -> public static final String APP_IMAGE =
+//        AppImageReferencesLoader.load("APP_IMAGE", "registry.example.com/app:1.0@sha256:…");
 //    (the reference is a single line: name:tag with the digest appended in place by default)
 ```
 
 `fromFile` is fully generic: point it at any text document (a generated manifest, a license, a
 descriptor) and its contents land in a Java constant.
+
+##### Overriding generated values at runtime
+
+Every generated constant resolves its value **at class-init time**, falling back to the generated
+default if nothing overrides it — so a deployment can redirect an image coordinate, endpoint, or
+resource path without regenerating or recompiling. The value is no longer a compile-time constant
+(so it can't be used in a `switch` label or annotation), but it is read live. Each override is a
+`key=value` entry where the **key is the constant name** (e.g. `APP_IMAGE`), scoped per interface.
+
+Overrides come from two sources, both named after the **fully-qualified interface name** (for
+`com.example.FixtureReferences`, the default package is just `FixtureReferences`):
+
+- **Classpath resources** — every resource named `<qualified-interface>.properties` (a flat,
+  dot-named file at the classpath root, e.g. `com.example.FixtureReferences.properties`). All such
+  resources on the classpath are consulted, so several jars can each ship one; when more than one
+  defines the same key, the one **earlier on the classpath wins**. These are the defaults an
+  artifact bundles in its jar.
+- **System-property files** — a comma-separated list of filesystem paths in the JVM system property
+  `<qualified-interface>.overrides`. The **last file in the list wins**. These are operator
+  overrides supplied at deploy time.
+
+**Precedence (highest → lowest): system-property files (last in the list) > classpath resources
+(earlier on the classpath) > the generated default.** So an external file always beats a bundled
+resource, which beats the baked-in value.
+
+```properties
+# com.example.FixtureReferences.properties (bundled in the jar) or a file passed via -D…overrides
+APP_IMAGE=registry.internal/app:2.0@sha256:…
+```
+
+```sh
+# point one or more external files at the interface (later files override earlier ones)
+java -Dcom.example.FixtureReferences.overrides=/etc/app/refs.properties,/etc/app/local.properties -jar app.jar
+```
+
+A missing file or an absent system property is ignored silently; an I/O error or a malformed
+properties file (e.g. a bad `\uXXXX` escape) on any one source is logged via `System.Logger` (logger
+name = the qualified interface name) and that source is skipped — the default still applies, the
+application does not fail.
 
 #### Application & distribution archives
 

@@ -90,8 +90,8 @@ exit 0
         def text = generated.text
         text.contains('package com.example;')
         text.contains('public interface FixtureCharts')
-        text.contains('public static final String API = "charts/api.tgz";')
-        text.contains('public static final String WEB_PROXY = "charts/webProxy.tgz";')
+        text.contains('public static final String API = FixtureChartsLoader.load("API", "charts/api.tgz");')
+        text.contains('public static final String WEB_PROXY = FixtureChartsLoader.load("WEB_PROXY", "charts/webProxy.tgz");')
     }
 
     def "bundles the packaged chart into the jar under charts/"() {
