@@ -1,0 +1,40 @@
+// api-service — an application image built FROM the :base-image image, exposing its
+// digest-pinned coordinate to Java code.
+//
+// Demonstrates: a cross-project base-image dependency (`from 'BASE_IMAGE',
+// project(':base-image')`), a target platform, and `javaReference()` which generates
+// an `ApiImages` interface whose constants carry the built image's digest-pinned
+// reference (read at build time). The generated constant is consumed by ApiInfo.java.
+plugins {
+    id 'java'
+    id 'io.github.nhwalker.container'
+    id 'maven-publish'
+}
+
+container {
+    referencesPackage = 'io.github.nhwalker.examples.api'
+    referencesClassName = 'ApiImages'
+    images {
+        api {
+            containerfile = layout.projectDirectory.file('src/main/container/Containerfile')
+            contextDirectory = layout.projectDirectory.dir('src/main/container')
+            tags = ['registry.example.com/api:1.0']
+            platform = 'linux/amd64'
+            // The resolved, digest-pinned reference of :base-image is injected as the
+            // BASE_IMAGE build arg, and :base-image is built first.
+            from 'BASE_IMAGE', project(':base-image')
+            // Expose this image's reference as a constant on the generated ApiImages
+            // interface (main source set). Generating it builds + inspects the image.
+            javaReference()
+        }
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) { from components.container }
+    }
+    repositories {
+        maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }
+    }
+}

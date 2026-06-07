@@ -1,0 +1,7 @@
+apiVersion: v2
+name: platform
+description: Umbrella chart aggregating the base chart
+type: application
+# Replaced at stage time from the chart's preValues.
+version: {{ .PreValues.ChartVersion }}
+appVersion: "1.0.0"

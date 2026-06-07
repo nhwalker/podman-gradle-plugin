@@ -1,0 +1,5 @@
+# Built FROM the sibling `runtime` image, injected as the BASE_IMAGE build arg.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+RUN echo "worker-service image" > /etc/examples-worker-info

@@ -1,0 +1,38 @@
+// Examples build for the podman-gradle-plugin.
+//
+// This is a self-contained composite build. Run it directly with the repository's
+// Gradle wrapper, e.g. from the repository root:
+//
+//     ./gradlew -p examples :integration-test:test
+//
+// or from this directory:
+//
+//     ../gradlew :integration-test:test
+//
+// The plugin under test is wired in via `includeBuild('..')` below so the
+// `io.github.nhwalker.*` plugin ids resolve from the parent build's sources.
+//
+// The plugin's own test harness (ExamplesFunctionalSpec) instead injects the
+// plugin classpath via GradleRunner.withPluginClasspath() and passes
+// `-PpluginUnderTest`, so the includeBuild is skipped in that mode to avoid
+// contributing the plugin twice.
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+if (!providers.gradleProperty('pluginUnderTest').present) {
+    includeBuild('..')
+}
+
+rootProject.name = 'examples'
+
+include ':base-image'
+include ':api-service'
+include ':worker-service'
+include ':base-chart'
+include ':platform-chart'
+include ':reports'
+include ':integration-test'

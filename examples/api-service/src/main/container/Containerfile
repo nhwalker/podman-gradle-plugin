@@ -1,0 +1,5 @@
+# Built FROM the digest-pinned :base-image reference injected as the BASE_IMAGE build arg.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+RUN echo "api-service image" > /etc/examples-api-info

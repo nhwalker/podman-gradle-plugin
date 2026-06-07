@@ -1,0 +1,45 @@
+// platform-chart — an umbrella chart that aggregates :base-chart as a subchart and
+// exposes its packaged archive to Java code.
+//
+// Demonstrates: subchart aggregation (`from project(':base-chart')` stages base.tgz
+// into this chart's charts/ before packaging), build-time preValues substitution
+// ({{ .PreValues.X }} in Chart.yaml / values.yaml), chart/app version overrides, and
+// `importResourcesTask()` which bundles the packaged chart into the jar and generates
+// a `PlatformCharts` interface of charts/<chart>.tgz resource-path constants.
+plugins {
+    id 'java'
+    id 'io.github.nhwalker.helm'
+    id 'maven-publish'
+}
+
+helm {
+    referencesPackage = 'io.github.nhwalker.examples.platform'
+    referencesClassName = 'PlatformCharts'
+    charts {
+        platform {
+            // chartDirectory defaults to src/main/helm/platform
+            chartVersion = project.version.toString()
+            appVersion = '1.0.0'
+            // Replaces {{ .PreValues.ChartVersion }} / {{ .PreValues.ApiImage }} in the
+            // chart's Chart.yaml and values.yaml before staging.
+            preValues = [
+                'ChartVersion': project.version.toString(),
+                'ApiImage'    : 'registry.example.com/api:1.0'
+            ]
+            // Aggregate :base-chart as a subchart (staged into charts/base.tgz).
+            from project(':base-chart')
+            // Bundle the packaged platform chart into the jar resources at
+            // charts/platform.tgz and expose its path on PlatformCharts.
+            importResourcesTask()
+        }
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) { from components.helm }
+    }
+    repositories {
+        maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }
+    }
+}
