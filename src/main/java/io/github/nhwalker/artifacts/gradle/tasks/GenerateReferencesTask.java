@@ -33,7 +33,7 @@ import org.gradle.api.tasks.TaskAction;
  */
 public abstract class GenerateReferencesTask extends DefaultTask {
 
-    /** The simple name of the generated interface, e.g. {@code FixtureCharts}. */
+    /** The simple name of the generated interface, e.g. {@code FixtureReferences}. */
     @Input
     public abstract Property<String> getClassName();
 

@@ -1,5 +1,6 @@
 package io.github.nhwalker.helm.gradle.dsl;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import javax.inject.Inject;
@@ -54,7 +55,8 @@ public abstract class HelmChart implements Named {
     private final String name;
     private final Project project;
     private int subchartCounter;
-    private TaskProvider<Sync> resourceBundle;
+    // The first bundling task registered for each target source set (insertion-ordered).
+    private final Map<String, TaskProvider<Sync>> resourceBundles = new LinkedHashMap<>();
 
     @Inject
     @SuppressWarnings("this-escape")
@@ -177,8 +179,8 @@ public abstract class HelmChart implements Named {
      * set's resources at {@code charts/<chart>.tgz}, so it is carried in the jar and visible on the
      * eclipse classpath (the target project must apply the {@code java} plugin). When the
      * extension's {@code generateReferences} is enabled, this chart contributes a constant to the
-     * generated {@code <ProjectName>Charts} interface. {@code configuration} further configures the
-     * copy spec; the {@code charts/} prefix is applied first.
+     * generated {@code <ProjectName>References} interface for its source set. {@code configuration}
+     * further configures the copy spec; the {@code charts/} prefix is applied first.
      *
      * <p>The first call registers the task and applies {@code configuration}; later calls return the
      * same {@code TaskProvider} as an idempotent dependency handle.
@@ -197,19 +199,17 @@ public abstract class HelmChart implements Named {
                 importResourcesTaskName(name, sourceSetName),
                 "Bundles the packaged '" + name + "' chart into the '" + sourceSetName + "' resources.",
                 packageTaskName(name), packagedChart, sourceSetName, destination, placement);
-        if (resourceBundle == null) {
-            resourceBundle = task;
-        }
+        resourceBundles.putIfAbsent(sourceSetName, task);
         return task;
     }
 
     /**
-     * The bundling task registered by the first {@link #importResourcesTask} call, or {@code null}
-     * if this chart is not bundled into resources. Read by the plugin to build the references
-     * interface.
+     * The bundling tasks registered by {@link #importResourcesTask}, keyed by target source set
+     * name (empty if this chart is not bundled into resources). Read by the plugin to build the
+     * per-source-set references interface.
      */
-    public TaskProvider<Sync> getResourceBundle() {
-        return resourceBundle;
+    public Map<String, TaskProvider<Sync>> getResourceBundles() {
+        return resourceBundles;
     }
 
     // ---- naming helpers (shared with the plugin reaction) -----------------------

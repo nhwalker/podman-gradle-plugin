@@ -35,6 +35,21 @@ public final class ResourceImports {
     }
 
     /**
+     * The conventional references-interface name for a project + source set: the project name in
+     * PascalCase followed by {@code References}, with the capitalized source-set name appended for
+     * any non-{@code main} source set (e.g. {@code FixtureReferences}, {@code FixtureReferencesTest}).
+     * Shared by the container, helm, and generic-artifacts plugins so every generated interface
+     * follows one naming scheme.
+     */
+    public static String referencesClassName(String projectName, String sourceSetName) {
+        String base = GenerateReferencesTask.pascalCase(projectName) + "References";
+        if (SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName)) {
+            return base;
+        }
+        return base + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
+    }
+
+    /**
      * Registers (or returns) a {@code Sync} task that stages {@code source} into {@code destination}
      * and, deferred until the {@code java} plugin is applied, registers that folder onto
      * {@code sourceSetName}'s resources via {@code SourceDirectorySet.srcDir} (so it is bundled into

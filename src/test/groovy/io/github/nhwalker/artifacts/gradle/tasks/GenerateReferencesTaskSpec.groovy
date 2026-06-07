@@ -5,7 +5,7 @@ import spock.lang.Unroll
 
 /**
  * Unit tests for the naming conventions used when generating a references interface
- * (e.g. {@code <ProjectName>Charts} / {@code <ProjectName>Artifacts}).
+ * (e.g. {@code <ProjectName>References}).
  */
 class GenerateReferencesTaskSpec extends Specification {
 

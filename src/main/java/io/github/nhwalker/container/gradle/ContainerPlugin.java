@@ -52,7 +52,7 @@ public class ContainerPlugin implements Plugin<Project> {
     /** The name of the software component aggregating this project's image variants. */
     public static final String COMPONENT_NAME = "container";
 
-    /** The task that generates the {@code <ProjectName>Images} Java interface. */
+    /** The task that generates the {@code <ProjectName>References} Java interface. */
     public static final String GENERATE_JAVA_REFS_TASK = "generateImageReferences";
 
     private final SoftwareComponentFactory softwareComponentFactory;
@@ -119,7 +119,8 @@ public class ContainerPlugin implements Plugin<Project> {
         if (constants.isEmpty()) {
             return;
         }
-        String className = GenerateReferencesTask.pascalCase(project.getName()) + "Images";
+        String className = ResourceImports.referencesClassName(
+                project.getName(), SourceSet.MAIN_SOURCE_SET_NAME);
         Provider<Directory> output = project.getLayout().getBuildDirectory()
                 .dir("generated/sources/containerImageRefs/java/main");
         // Depending on the build tasks (via the helper) makes regenerating the interface — or the

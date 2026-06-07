@@ -12,7 +12,7 @@ import org.gradle.api.provider.Property;
  * <p>Where a produced artifact's {@code importResourcesTask()} contributes the <em>resource path</em>
  * of a bundled file, a {@code references} entry contributes an arbitrary value of your choosing —
  * an endpoint URL, a schema version, an externally-supplied image coordinate, anything. Each entry
- * becomes a {@code public static final String} on the generated {@code <ProjectName>Artifacts}
+ * becomes a {@code public static final String} on the generated {@code <ProjectName>References}
  * interface, named after the element in UPPER_SNAKE_CASE:
  *
  * <pre>

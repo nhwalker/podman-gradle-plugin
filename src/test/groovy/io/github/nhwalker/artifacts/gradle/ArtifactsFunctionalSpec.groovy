@@ -513,11 +513,11 @@ class ArtifactsFunctionalSpec extends Specification {
         result.task(':importReportResources').outcome == SUCCESS
         result.task(':generateArtifactReferences').outcome == SUCCESS
         def generated = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java')
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
-        text.contains('public interface FixtureArtifacts')
+        text.contains('public interface FixtureReferences')
         text.contains('public static final String REPORT = "reports/report.txt";')
     }
 
@@ -542,10 +542,10 @@ class ArtifactsFunctionalSpec extends Specification {
         then: 'each declared reference is a constant carrying its arbitrary value'
         result.task(':generateArtifactReferences').outcome == SUCCESS
         def generated = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java')
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
-        text.contains('public interface FixtureArtifacts')
+        text.contains('public interface FixtureReferences')
         text.contains('public static final String API_BASE_URL = "https://api.example.com";')
         text.contains('public static final String SCHEMA_VERSION = "v3";')
     }
@@ -572,9 +572,44 @@ class ArtifactsFunctionalSpec extends Specification {
         result.task(':importReportResources').outcome == SUCCESS
         result.task(':generateArtifactReferences').outcome == SUCCESS
         def text = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java').text
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
         text.contains('public static final String REPORT = "report.txt";')
         text.contains('public static final String SCHEMA_VERSION = "v3";')
+    }
+
+    def "references can target a non-main source set, generating a suffixed interface"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                generateReferences = true
+                references          { apiBaseUrl { value = 'https://api.example.com' } }
+                references('test')  { stubUrl    { value = 'http://localhost:8080' } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences', 'generateTestArtifactReferences').build()
+
+        then: 'main and test each get their own interface in their own source set'
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':generateTestArtifactReferences').outcome == SUCCESS
+
+        and: 'main is unsuffixed and carries only the main reference'
+        def main = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+        main.contains('public interface FixtureReferences ')
+        main.contains('public static final String API_BASE_URL = "https://api.example.com";')
+        !main.contains('STUB_URL')
+
+        and: 'test is suffixed and carries only the test reference'
+        def test = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/test/com/example/FixtureReferencesTest.java').text
+        test.contains('public interface FixtureReferencesTest ')
+        test.contains('public static final String STUB_URL = "http://localhost:8080";')
+        !test.contains('API_BASE_URL')
     }
 
     def "references need generateReferences enabled to be generated"() {

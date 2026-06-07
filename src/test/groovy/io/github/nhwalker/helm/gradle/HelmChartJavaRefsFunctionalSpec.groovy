@@ -10,7 +10,7 @@ import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
  * Functional tests for bundling charts into resources and the generated
- * {@code <ProjectName>Charts} interface. Charts opt into bundling with
+ * {@code <ProjectName>References} interface. Charts opt into bundling with
  * {@code importResourcesTask()} (mirroring the generic artifacts DSL): the chart lands in the jar
  * at {@code charts/<chart>.tgz}, and when {@code generateReferences} is on that path is exposed as
  * a constant, compiled with the project's sources and wired onto the eclipse classpath.
@@ -85,11 +85,11 @@ exit 0
 
         and: 'the interface exposes each bundled chart jar resource path'
         def generated = new File(dir,
-                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureCharts.java')
+                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
-        text.contains('public interface FixtureCharts')
+        text.contains('public interface FixtureReferences')
         text.contains('public static final String API = "charts/api.tgz";')
         text.contains('public static final String WEB_PROXY = "charts/webProxy.tgz";')
     }
@@ -161,7 +161,7 @@ exit 0
         src << """
             package com.example;
             public class Consumer {
-                public static final String CHART = FixtureCharts.API;
+                public static final String CHART = FixtureReferences.API;
             }
         """
 
@@ -218,7 +218,7 @@ exit 0
 
         and: 'the generated source folder and the staged chart resource folder are both on the classpath'
         new File(dir,
-                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureCharts.java').exists()
+                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureReferences.java').exists()
         new File(dir, 'build/generated/resources/helmCharts/api/main/charts/api.tgz').exists()
         def classpath = new File(dir, '.classpath').text
         classpath.contains('build/generated/sources/helmChartRefs/java/main')

@@ -7,7 +7,7 @@ import spock.lang.TempDir
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
- * Functional tests for the generated {@code <ProjectName>Images} interface: it is
+ * Functional tests for the generated {@code <ProjectName>References} interface: it is
  * produced when a Java plugin is applied and {@code generateJavaRefs} is enabled,
  * carries each image's primary tag, refreshes when an image builds, and is compiled
  * as part of the project's main sources.
@@ -64,11 +64,11 @@ exit 0
 
         and: 'the interface carries the primary (first) tag of each image'
         def generated = new File(dir,
-                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java')
+                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
-        text.contains('public interface FixtureImages')
+        text.contains('public interface FixtureReferences')
         text.contains('public static final String APP = "example/app:1.0";')
         text.contains('public static final String WEB_SERVER = "example/web:2.0";')
     }
@@ -89,7 +89,7 @@ exit 0
         src << """
             package com.example;
             public class Consumer {
-                public static final String IMAGE = FixtureImages.APP;
+                public static final String IMAGE = FixtureReferences.APP;
             }
         """
 
@@ -123,7 +123,7 @@ exit 0
 
         and: 'the generated source folder is on the eclipse classpath'
         new File(dir,
-                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java').exists()
+                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureReferences.java').exists()
         new File(dir, '.classpath').text.contains('build/generated/sources/containerImageRefs/java/main')
     }
 
