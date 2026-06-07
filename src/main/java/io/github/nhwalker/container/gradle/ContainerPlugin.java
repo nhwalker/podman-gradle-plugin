@@ -73,7 +73,7 @@ public class ContainerPlugin implements Plugin<Project> {
         extension.getGenerateJavaRefs().convention(false);
         extension.getJavaRefsPackage().convention(
                 project.provider(() -> String.valueOf(project.getGroup())));
-        extension.getJavaRefsClassName().convention(project.provider(() ->
+        extension.getReferencesClassName().convention(project.provider(() ->
                 ResourceImports.defaultReferencesBaseName(project.getName(), REFERENCES_DOMAIN)));
 
         project.getTasks().withType(AbstractContainerTask.class).configureEach(task -> {
@@ -125,7 +125,7 @@ public class ContainerPlugin implements Plugin<Project> {
         }
         // Image references are always main, so the configured class name is used verbatim.
         String className = ResourceImports.withSourceSetSuffix(
-                extension.getJavaRefsClassName().get(), SourceSet.MAIN_SOURCE_SET_NAME);
+                extension.getReferencesClassName().get(), SourceSet.MAIN_SOURCE_SET_NAME);
         Provider<Directory> output = project.getLayout().getBuildDirectory()
                 .dir("generated/sources/containerImageRefs/java/main");
         // Depending on the build tasks (via the helper) makes regenerating the interface — or the

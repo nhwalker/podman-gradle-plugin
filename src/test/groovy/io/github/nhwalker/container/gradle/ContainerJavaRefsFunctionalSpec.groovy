@@ -193,7 +193,7 @@ exit 0
             container {
                 executable = '${fakeBin.absolutePath}'
                 generateJavaRefs = true
-                javaRefsClassName = 'MyImages'
+                referencesClassName = 'MyImages'
                 images { app { tags = ['example/app:1.0'] } }
             }
         """

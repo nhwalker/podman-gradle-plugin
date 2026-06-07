@@ -658,7 +658,7 @@ group = 'com.example'                    // becomes the generated package
 container {
     generateJavaRefs = true
     // javaRefsPackage = 'com.example.images'   // override (defaults to project group)
-    // javaRefsClassName = 'MyImages'           // override the interface name (default <ProjectName>Images)
+    // referencesClassName = 'MyImages'         // override the interface name (default <ProjectName>Images)
     images {
         app       { tags = ['example/app:1.0', 'example/app:latest'] }
         webServer { tags = ['example/web:2.0'] }
@@ -689,8 +689,8 @@ public interface FixtureImages {
 Each plugin names its interface `<ProjectName><Domain>` with its own `<Domain>` segment —
 `Images` here, `Charts` for helm, `References` for generic-artifacts — so the three never
 collide and can all be applied in one project. The name is customizable via
-`javaRefsClassName` (the `<Domain>` default is just a convention), and a non-`main` source
-set appends the capitalized source-set name.
+`referencesClassName` (the same property name on all three plugins; the `<Domain>` default is
+just a convention), and a non-`main` source set appends the capitalized source-set name.
 
 ### Low-level plumbing
 
