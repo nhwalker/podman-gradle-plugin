@@ -2,6 +2,7 @@ package io.github.nhwalker.container.gradle;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import javax.inject.Inject;
 
@@ -16,8 +17,10 @@ import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.TaskProvider;
 
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes;
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
-import io.github.nhwalker.container.gradle.dependency.ContainerDependencies;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 import io.github.nhwalker.container.gradle.tasks.AbstractContainerTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerBuildTask;
@@ -73,7 +76,16 @@ public class ContainerPlugin implements Plugin<Project> {
             task.getConnection().convention(extension.getConnection());
         });
 
-        ContainerDependencies.registerSchema(project);
+        // Container images are modeled as generic artifacts: register the core
+        // artifact schema, the container free-attribute keys, and the rule that
+        // defaults an unrequested archive format to oci-archive.
+        ArtifactsDependencies.registerSchema(project);
+        ArtifactsDependencies.registerAttributeKey(project, ContainerAttributes.IMAGE_NAME_KEY);
+        ArtifactsDependencies.registerAttributeKey(project, ContainerAttributes.IMAGE_TYPE_KEY);
+        ArtifactsDependencies.registerAttributeKey(project, ContainerAttributes.ARCHIVE_FORMAT_KEY);
+        project.getDependencies().getAttributesSchema()
+                .attribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.ARCHIVE_FORMAT_KEY))
+                .getDisambiguationRules().add(ContainerAttributes.ArchiveFormatDefaultRule.class);
 
         // One component aggregates every image's variants (one module/coordinate),
         // the same way the java component carries the main + sources/javadoc jars.
@@ -160,9 +172,18 @@ public class ContainerPlugin implements Plugin<Project> {
                             layout.getBuildDirectory().file(ContainerImage.referenceFilePath(name)));
                 });
 
-        var referenceElements = ContainerDependencies.referenceElements(project,
-                ContainerImage.referenceElementsName(name), name,
-                referenceTask.flatMap(ContainerImageReferenceTask::getReferenceFile), referenceTask);
+        // Reference variant: classifier <image>-reference, free attrs imageName/imageType,
+        // artifact type txt with the reference-writing task as its build dependency.
+        var referenceElements = ArtifactsDependencies.elements(project,
+                ContainerImage.referenceElementsName(name), name + "-reference",
+                Map.of(ContainerAttributes.IMAGE_NAME_KEY, name,
+                        ContainerAttributes.IMAGE_TYPE_KEY, ContainerAttributes.IMAGE_TYPE_REFERENCE),
+                List.of(new ArtifactSpec(
+                        referenceTask.flatMap(ContainerImageReferenceTask::getReferenceFile),
+                        artifact -> {
+                            artifact.setType("txt");
+                            artifact.builtBy(referenceTask);
+                        })));
         component.addVariantsFromConfiguration(referenceElements.get(), details -> { });
 
         if (image.getCreateArchive().get()) {
@@ -182,9 +203,19 @@ public class ContainerPlugin implements Plugin<Project> {
                             referenceTask.flatMap(ContainerImageReferenceTask::getReferenceFile));
                 }
             });
-            var archiveElements = ContainerDependencies.archiveElements(project,
-                    ContainerImage.archiveElementsName(name), name, format,
-                    saveTask.flatMap(ContainerSaveTask::getOutputFile), saveTask);
+            // Archive variant: classifier <image>, free attrs imageName/imageType/archiveFormat,
+            // artifact type tar with the save task as its build dependency.
+            var archiveElements = ArtifactsDependencies.elements(project,
+                    ContainerImage.archiveElementsName(name), name,
+                    Map.of(ContainerAttributes.IMAGE_NAME_KEY, name,
+                            ContainerAttributes.IMAGE_TYPE_KEY, ContainerAttributes.IMAGE_TYPE_ARCHIVE,
+                            ContainerAttributes.ARCHIVE_FORMAT_KEY, format),
+                    List.of(new ArtifactSpec(
+                            saveTask.flatMap(ContainerSaveTask::getOutputFile),
+                            artifact -> {
+                                artifact.setType("tar");
+                                artifact.builtBy(saveTask);
+                            })));
             component.addVariantsFromConfiguration(archiveElements.get(), details -> { });
         }
         return buildTask;
