@@ -195,15 +195,7 @@ class ArtifactsFunctionalSpec extends Specification {
         new File(dir, 'consumer').mkdirs()
         new File(dir, 'consumer/build.gradle') << """
             plugins { id 'io.github.nhwalker.artifacts' }
-            genericArtifacts {
-                consume {
-                    libSources {
-                        from project(':lib')
-                        attribute 'org.gradle.category', 'documentation'
-                        attribute 'org.gradle.docstype', 'sources'
-                    }
-                }
-            }
+            genericArtifacts { consume { libSources { from project(':lib'); sources() } } }
             tasks.register('grab', Copy) { from genericArtifacts.consume.libSources.files; into layout.buildDirectory.dir('out') }
         """
 

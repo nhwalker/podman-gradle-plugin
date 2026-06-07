@@ -169,6 +169,28 @@ class ArtifactsPluginSpec extends Specification {
         resolvable.attributes.isEmpty()
     }
 
+    def "the sources()/javadoc() presets expand to the native documentation attributes"() {
+        given:
+        project.genericArtifacts {
+            consume {
+                srcs { from 'com.example:lib:1.0'; sources() }
+                docs { from 'com.example:lib:1.0'; javadoc() }
+            }
+        }
+
+        when:
+        evaluate()
+
+        then:
+        def srcs = project.configurations.getByName('srcsRefs').attributes
+        srcs.getAttribute(ArtifactsAttributes.freeAttribute('org.gradle.category')) == 'documentation'
+        srcs.getAttribute(ArtifactsAttributes.freeAttribute('org.gradle.docstype')) == 'sources'
+
+        and:
+        def docs = project.configurations.getByName('docsRefs').attributes
+        docs.getAttribute(ArtifactsAttributes.freeAttribute('org.gradle.docstype')) == 'javadoc'
+    }
+
     def "a consumer can request native (non-namespaced) attributes for selecting a JVM variant"() {
         given:
         project.genericArtifacts {

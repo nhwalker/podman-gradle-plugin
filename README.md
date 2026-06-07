@@ -970,14 +970,10 @@ genericArtifacts {
         //    selects our variant even when the target also publishes JVM variants.
         theReport { from 'com.example:platform:1.0'; classifier = 'report' }
 
-        // 2. A native variant of ANOTHER Gradle project — e.g. its sources jar —
-        //    selected by that ecosystem's own attributes (String values match the
-        //    typed/Named producer attributes by name).
-        libSources {
-            from project(':lib')
-            attribute 'org.gradle.category', 'documentation'
-            attribute 'org.gradle.docstype', 'sources'
-        }
+        // 2. A native variant of ANOTHER Gradle project — e.g. its sources jar.
+        //    sources()/javadoc() are presets; or use attribute '...','...' for any
+        //    other native variant (String values match typed producer attributes by name).
+        libSources { from project(':lib'); sources() }
 
         // 3. The conventional default artifact of another project (a Java library's
         //    main jar) — no attributes needed.
@@ -1006,7 +1002,7 @@ other project's variants (via their attributes), while keeping composite-build s
 | Source | How to consume | Notes |
 |---|---|---|
 | Our artifact, project / composite / repo | `classifier = '…'` (attribute) | composite-safe; uniquely selects our variant |
-| Another project's native variant (sources, etc.) | `attribute '…', '…'` (native attrs) | target must expose it as a variant |
+| Another project's native variant (sources, etc.) | `sources()` / `javadoc()` preset, or `attribute '…', '…'` | target must expose it as a variant |
 | Another project's default artifact (main jar) | no attributes | falls back to the conventional default |
 | Plain Maven-repo artifact (incl. sources jars) | classifier in the `from` notation (`:sources@jar`) | artifact-only; repo-only |
 

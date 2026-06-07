@@ -6,6 +6,8 @@ import java.util.List;
 import javax.inject.Inject;
 
 import org.gradle.api.Named;
+import org.gradle.api.attributes.Category;
+import org.gradle.api.attributes.DocsType;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
@@ -30,12 +32,9 @@ import org.gradle.api.provider.Property;
  *     // a generic artifact published by this plugin (project / composite / repo)
  *     theReport { from 'com.example:producer:1.0'; classifier = 'report' }
  *
- *     // a native variant of another project — selected by its own attributes
- *     libSources {
- *         from project(':lib')
- *         attribute 'org.gradle.category', 'documentation'
- *         attribute 'org.gradle.docstype', 'sources'
- *     }
+ *     // a native variant of another project — e.g. its sources jar, via a preset
+ *     // (or attribute '...','...' for any other native variant)
+ *     libSources { from project(':lib'); sources() }
  *
  *     // the main jar of another project — no attributes needed
  *     libJar { from project(':lib') }
@@ -83,6 +82,27 @@ public abstract class ConsumedArtifact implements Named {
     /** Adds a single free String attribute to the request. */
     public void attribute(String key, String value) {
         getAttributes().put(key, value);
+    }
+
+    /**
+     * Preset for a JVM <strong>sources</strong> variant: requests
+     * {@code org.gradle.category=documentation} and {@code org.gradle.docstype=sources}.
+     * Equivalent to setting those two attributes by hand; the target must expose a
+     * sources variant (e.g. the producer applied {@code java { withSourcesJar() }}).
+     */
+    public void sources() {
+        attribute(Category.CATEGORY_ATTRIBUTE.getName(), Category.DOCUMENTATION);
+        attribute(DocsType.DOCS_TYPE_ATTRIBUTE.getName(), DocsType.SOURCES);
+    }
+
+    /**
+     * Preset for a JVM <strong>javadoc</strong> variant: requests
+     * {@code org.gradle.category=documentation} and {@code org.gradle.docstype=javadoc}.
+     * The target must expose a javadoc variant (e.g. {@code java { withJavadocJar() }}).
+     */
+    public void javadoc() {
+        attribute(Category.CATEGORY_ATTRIBUTE.getName(), Category.DOCUMENTATION);
+        attribute(DocsType.DOCS_TYPE_ATTRIBUTE.getName(), DocsType.JAVADOC);
     }
 
     /**
