@@ -9,6 +9,7 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.Property;
 
 import io.github.nhwalker.artifacts.gradle.dsl.ConsumedArtifact;
+import io.github.nhwalker.artifacts.gradle.dsl.JavaReference;
 import io.github.nhwalker.artifacts.gradle.dsl.ProducedArtifact;
 
 /**
@@ -33,6 +34,7 @@ public abstract class ArtifactsExtension {
 
     private final NamedDomainObjectContainer<ProducedArtifact> produce;
     private final NamedDomainObjectContainer<ConsumedArtifact> consume;
+    private final NamedDomainObjectContainer<JavaReference> references;
 
     @Inject
     public ArtifactsExtension(ObjectFactory objects, Project project) {
@@ -41,13 +43,16 @@ public abstract class ArtifactsExtension {
                 name -> objects.newInstance(ProducedArtifact.class, name, project));
         this.consume = objects.domainObjectContainer(ConsumedArtifact.class,
                 name -> objects.newInstance(ConsumedArtifact.class, name, project));
+        // References only carry a name + value, so the default element factory suffices.
+        this.references = objects.domainObjectContainer(JavaReference.class);
     }
 
     /**
      * When {@code true} and the {@code java} plugin is applied, generates a
-     * {@code <ProjectName>Artifacts} Java interface exposing the jar resource path of each produced
-     * artifact that {@link ProducedArtifact#importResourcesTask() bundles into resources} as a
-     * {@code public static final String} constant. Defaults to {@code false}.
+     * {@code <ProjectName>Artifacts} Java interface exposing, as {@code public static final String}
+     * constants, the jar resource path of each produced artifact that
+     * {@link ProducedArtifact#importResourcesTask() bundles into resources} plus every arbitrary
+     * value declared in {@link #getReferences() references}. Defaults to {@code false}.
      */
     public abstract Property<Boolean> getGenerateReferences();
 
@@ -75,5 +80,19 @@ public abstract class ArtifactsExtension {
     /** Configures the {@link #getConsume() consume} container. */
     public void consume(Action<? super NamedDomainObjectContainer<ConsumedArtifact>> action) {
         action.execute(consume);
+    }
+
+    /**
+     * Arbitrary {@code String} constants to expose on the generated {@code <ProjectName>Artifacts}
+     * interface (a generic way to put strings into a Java file), alongside the bundled-artifact
+     * resource paths. Realized only when {@link #getGenerateReferences() generateReferences} is on.
+     */
+    public NamedDomainObjectContainer<JavaReference> getReferences() {
+        return references;
+    }
+
+    /** Configures the {@link #getReferences() references} container. */
+    public void references(Action<? super NamedDomainObjectContainer<JavaReference>> action) {
+        action.execute(references);
     }
 }

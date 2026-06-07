@@ -665,6 +665,10 @@ container {
 }
 ```
 
+Under the hood this is the same artifact-agnostic `GenerateReferencesTask` the helm and
+generic-artifacts plugins use — the image tag is just an arbitrary string fed into it (see
+[`references`](#putting-arbitrary-strings-into-a-java-file-references) for the generic form).
+
 When the `eclipse` plugin is also applied, `eclipseClasspath` depends on the image
 build (and thus the generator), so regenerating the Eclipse classpath builds the
 images and the generated source folder exists for the IDE to pick up.
@@ -998,6 +1002,32 @@ genericArtifacts {
 }
 // e.g. getClass().getResourceAsStream("/" + FixtureArtifacts.REPORT)
 ```
+
+#### Putting arbitrary strings into a Java file (`references`)
+
+The same `<ProjectName>Artifacts` interface can also carry **arbitrary string constants** that
+have nothing to do with bundled files — an endpoint URL, a schema version, an externally-supplied
+image coordinate, anything. Declare them under `references { }`; each entry becomes a
+`public static final String` named after the element in `UPPER_SNAKE_CASE`, sitting alongside any
+bundled resource paths in the same generated interface. The value is a lazy `Property<String>`, so
+it can be set from a provider (a task output, another project's resolved coordinate, …).
+
+```groovy
+plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+group = 'com.example'
+
+genericArtifacts {
+    generateReferences = true                  // the single switch for the interface
+    references {
+        apiBaseUrl    { value = 'https://api.example.com' }   // -> API_BASE_URL
+        schemaVersion { value 'v3' }                          // -> SCHEMA_VERSION
+    }
+}
+```
+
+This is the generic counterpart of the container plugin's `generateJavaRefs`, which puts each
+image's tag (an arbitrary string, not a resource path) into a `<ProjectName>Images` interface — both
+now flow through the same `GenerateReferencesTask`.
 
 #### Application & distribution archives
 

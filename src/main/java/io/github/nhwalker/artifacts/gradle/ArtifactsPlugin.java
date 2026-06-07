@@ -98,6 +98,9 @@ public class ArtifactsPlugin implements Plugin<Project> {
                 bundles.add(bundle);
             }
         });
+        // Arbitrary user-declared constants share the same interface as the bundled resource paths.
+        extension.getReferences().forEach(reference ->
+                constants.put(reference.getName(), reference.getValue()));
         if (constants.isEmpty()) {
             return;
         }

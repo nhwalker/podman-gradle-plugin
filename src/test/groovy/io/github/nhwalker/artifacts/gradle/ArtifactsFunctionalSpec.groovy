@@ -521,6 +521,81 @@ class ArtifactsFunctionalSpec extends Specification {
         text.contains('public static final String REPORT = "reports/report.txt";')
     }
 
+    def "references expose arbitrary string constants on the generated interface"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                generateReferences = true
+                references {
+                    apiBaseUrl    { value = 'https://api.example.com' }
+                    schemaVersion { value 'v3' }
+                }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'each declared reference is a constant carrying its arbitrary value'
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        def generated = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java')
+        generated.exists()
+        def text = generated.text
+        text.contains('public interface FixtureArtifacts')
+        text.contains('public static final String API_BASE_URL = "https://api.example.com";')
+        text.contains('public static final String SCHEMA_VERSION = "v3";')
+    }
+
+    def "the generated interface merges bundled resource paths and arbitrary references"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def reportFile = layout.buildDirectory.file('report.txt')
+            def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
+            genericArtifacts {
+                generateReferences = true
+                produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask() } }
+                references { schemaVersion { value 'v3' } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'the bundle was wired and both kinds of constant appear in one interface'
+        result.task(':importReportResources').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        def text = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java').text
+        text.contains('public static final String REPORT = "report.txt";')
+        text.contains('public static final String SCHEMA_VERSION = "v3";')
+    }
+
+    def "references need generateReferences enabled to be generated"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                references { schemaVersion { value 'v3' } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'tasks').build()
+
+        then: 'without the switch no generation task is registered'
+        result.task(':generateArtifactReferences') == null
+        !new File(dir, 'build/generated/sources/genericArtifactRefs').exists()
+    }
+
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {
         given: 'a standalone producer build addressed by group:name'
         def cp = pluginClasspathFilesLiteral()
