@@ -12,8 +12,8 @@ import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
  * Functional tests for bundling charts into resources and the generated
  * {@code <ProjectName>Charts} interface. Charts opt into bundling with
  * {@code importResourcesTask()} (mirroring the generic artifacts DSL): the chart lands in the jar
- * at {@code charts/<chart>.tgz}, and when {@code generateReferences} is on that path is exposed as
- * a constant, compiled with the project's sources and wired onto the eclipse classpath.
+ * at {@code charts/<chart>.tgz}, and that path is exposed as a constant on the generated interface,
+ * compiled with the project's sources and wired onto the eclipse classpath.
  */
 class HelmChartJavaRefsFunctionalSpec extends Specification {
 
@@ -68,7 +68,6 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 charts {
                     api      { lint = false; importResourcesTask() }
                     webProxy { lint = false; importResourcesTask() }
@@ -120,7 +119,7 @@ exit 0
         new ZipFile(jar).withCloseable { it.getEntry('charts/api.tgz') != null }
     }
 
-    def "a bundled chart needs no interface unless generateReferences is enabled"() {
+    def "a chart that is not bundled produces no interface"() {
         given:
         writeChart('api')
         buildFile << """
@@ -128,20 +127,16 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                charts { api { lint = false; importResourcesTask() } }
+                charts { api { lint = false } }   // no importResourcesTask()
             }
         """
 
         when:
         def result = runner('jar').build()
 
-        then: 'the chart is bundled but no references task or interface exists'
-        result.task(':importApiChartResources').outcome == SUCCESS
+        then: 'with nothing bundled, no references task or interface exists'
         result.task(':generateChartReferences') == null
         !new File(dir, 'build/generated/sources/helmChartRefs').exists()
-        new ZipFile(new File(dir, 'build/libs/fixture.jar')).withCloseable {
-            it.getEntry('charts/api.tgz') != null
-        }
     }
 
     def "the generated interface is compiled with the project's main sources"() {
@@ -152,7 +147,6 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 charts { api { lint = false; importResourcesTask() } }
             }
         """
@@ -202,7 +196,6 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 charts { api { lint = false; importResourcesTask() } }
             }
         """

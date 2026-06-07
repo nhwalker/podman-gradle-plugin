@@ -177,10 +177,10 @@ public abstract class HelmChart implements Named {
     /**
      * Registers a {@code Sync} task that bundles this chart's packaged archive into the named source
      * set's resources at {@code charts/<chart>.tgz}, so it is carried in the jar and visible on the
-     * eclipse classpath (the target project must apply the {@code java} plugin). When the
-     * extension's {@code generateReferences} is enabled, this chart contributes a constant to the
-     * generated {@code <ProjectName>References} interface for its source set. {@code configuration}
-     * further configures the copy spec; the {@code charts/} prefix is applied first.
+     * eclipse classpath (the target project must apply the {@code java} plugin). Bundling a chart also
+     * contributes a constant (its {@code charts/<chart>.tgz} resource path) to the generated
+     * {@code <ProjectName>Charts} interface for its source set. {@code configuration} further
+     * configures the copy spec; the {@code charts/} prefix is applied first.
      *
      * <p>The first call registers the task and applies {@code configuration}; later calls return the
      * same {@code TaskProvider} as an idempotent dependency handle.

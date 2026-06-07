@@ -53,18 +53,14 @@ public abstract class ArtifactsExtension {
     }
 
     /**
-     * When {@code true} and the {@code java} plugin is applied, generates, per source set, a
-     * {@code <ProjectName>References[<SourceSet>]} Java interface exposing, as
-     * {@code public static final String} constants, the jar resource path of each produced artifact
-     * that {@link ProducedArtifact#importResourcesTask() bundles into} that source set plus every
-     * arbitrary value declared in {@link #references(String, Action) references} for it. Defaults to
-     * {@code false}.
-     */
-    public abstract Property<Boolean> getGenerateReferences();
-
-    /**
      * The package the generated {@code <ProjectName>References} interfaces are placed into. Defaults
      * to the project group; when blank the default package is used.
+     *
+     * <p>When the {@code java} plugin is applied, the plugin generates, per source set, a
+     * {@code <ProjectName>References[<SourceSet>]} interface exposing, as
+     * {@code public static final String} constants, the jar resource path of each produced artifact
+     * that {@link ProducedArtifact#importResourcesTask() bundles into} that source set plus every
+     * arbitrary value declared in {@link #references(String, Action) references} for it.
      */
     public abstract Property<String> getReferencesPackage();
 
@@ -99,8 +95,8 @@ public abstract class ArtifactsExtension {
     /**
      * The declared reference containers keyed by target source set name (a generic way to put
      * arbitrary strings into a Java file). Each becomes a {@code <ProjectName>References[<SourceSet>]}
-     * interface alongside the bundled-artifact resource paths, realized only when
-     * {@link #getGenerateReferences() generateReferences} is on. Read by the plugin.
+     * interface alongside the bundled-artifact resource paths, generated when the {@code java} plugin
+     * is applied. Read by the plugin.
      */
     public Map<String, NamedDomainObjectContainer<JavaReference>> getReferences() {
         return references;
@@ -120,7 +116,6 @@ public abstract class ArtifactsExtension {
      * capitalized source-set name). Each entry becomes a {@code public static final String}:
      * <pre>
      * genericArtifacts {
-     *     generateReferences = true
      *     references            { apiBaseUrl { value = 'https://api.example.com' } }  // main
      *     references('test')    { stubUrl    { value = 'http://localhost:8080' } }    // test
      * }

@@ -45,12 +45,11 @@ import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
  * </pre>
  *
  * <p>{@link #importResourcesTask} additionally bundles the produced artifact into this project's
- * own jar resources (mirroring the consume side). Combined with the extension's
- * {@code generateReferences} option, the bundled resource path is exposed to Java code through a
- * generated {@code <ProjectName>References} interface:
+ * own jar resources (mirroring the consume side). When the {@code java} plugin is applied, the
+ * bundled resource path is also exposed to Java code through a generated
+ * {@code <ProjectName>References} interface:
  * <pre>
  * genericArtifacts {
- *     generateReferences = true
  *     produce { report { artifact tasks.makeReport.outputFile; importResourcesTask() } }
  * }
  * </pre>
@@ -147,8 +146,8 @@ public abstract class ProducedArtifact implements Named {
      * registered as a resource source directory; the target project must apply the {@code java}
      * plugin. Files land in the resources root by default; {@code configuration} configures the
      * copy spec, so {@code into('subdir')} nests them under a subdirectory while the staged root
-     * stays put. When the extension's {@code generateReferences} is enabled, the bundled resource
-     * path is exposed as a constant on the generated interface.
+     * stays put. When the {@code java} plugin is applied, the bundled resource path is also exposed as
+     * a constant on the generated interface.
      *
      * <p>The first call registers the task and applies {@code configuration}; later calls return
      * the same {@code TaskProvider} as an idempotent dependency handle. (A bundling element name

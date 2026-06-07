@@ -198,6 +198,30 @@ unset: {{ .PreValues.Missing }}
         !argsLog.exists()
     }
 
+    def "package dryRun logs the command and touches nothing"() {
+        given:
+        writeChart('src/main/helm/api', 'api')
+        buildFile << """
+            plugins { id 'io.github.nhwalker.helm' }
+
+            helm {
+                executable = '${fakeBin.absolutePath}'
+                charts { api { lint = false } }
+            }
+            tasks.withType(io.github.nhwalker.helm.gradle.tasks.HelmPackageTask).configureEach { dryRun = true }
+        """
+
+        when:
+        def result = runner('packageApiChart').build()
+
+        then: 'the command is printed, helm is never invoked, and no archive is produced'
+        result.task(':packageApiChart').outcome == SUCCESS
+        result.output.contains('[dry-run]')
+        result.output.contains('package ')
+        !argsLog.exists()
+        !new File(testProjectDir, 'build/helm/api/api.tgz').exists()
+    }
+
     def "is compatible with the configuration cache"() {
         given:
         writeChart('src/main/helm/api', 'api')

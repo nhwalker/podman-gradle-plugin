@@ -60,26 +60,25 @@ public abstract class ContainerExtension {
     public abstract Property<String> getConnection();
 
     /**
-     * When {@code true} and a Java plugin is applied, the plugin generates a
-     * {@code <ProjectName>Images} Java interface exposing each declared image's full
-     * docker identifier (its primary tag) as a {@code public static final String}
-     * constant named after the image in UPPER_SNAKE_CASE. The interface is added to
-     * the {@code main} source set and (re)generated whenever an image is built.
-     * Defaults to {@code false}.
-     */
-    public abstract Property<Boolean> getGenerateJavaRefs();
-
-    /**
-     * The package the generated {@code <ProjectName>Images} interface is placed into.
+     * The package the generated {@code <ProjectName>Images} interface(s) are placed into.
      * Defaults to the project group; when blank the default package is used.
+     *
+     * <p>The interface is generated, per source set, whenever an image opts in via
+     * {@link io.github.nhwalker.container.gradle.dsl.ContainerImage#javaReference() javaReference(...)}
+     * and the {@code java} plugin is applied. Each opted-in image contributes a
+     * {@code public static final String} constant (named after the image in UPPER_SNAKE_CASE) whose
+     * value is read from the image's reference file (its {@code name:tag}, digest-pinned when that
+     * image's {@code includeDigest} is on), so generating the interface builds and inspects the
+     * opted-in images.
      */
-    public abstract Property<String> getJavaRefsPackage();
+    public abstract Property<String> getReferencesPackage();
 
     /**
-     * The name of the generated interface. Defaults to {@code <ProjectName>Images}; override to
-     * customize (e.g. {@code 'MyImages'}). Named {@code referencesClassName} consistently with the
-     * helm and generic-artifacts plugins. Image references are always {@code main}, so the value is
-     * used verbatim.
+     * The name of the generated interface for the {@code main} source set. Defaults to
+     * {@code <ProjectName>Images}; override to customize (e.g. {@code 'MyImages'}). Named
+     * {@code referencesClassName} consistently with the helm and generic-artifacts plugins. Images
+     * exposed to a non-{@code main} source set append the capitalized source-set name (e.g.
+     * {@code MyImagesTest}).
      */
     public abstract Property<String> getReferencesClassName();
 

@@ -35,9 +35,10 @@ import io.github.nhwalker.helm.gradle.tasks.HelmStageTask;
  * packaged charts as dependencies between projects.
  *
  * <p>Charts opt into being bundled into the project's jar resources with
- * {@link HelmChart#importResourcesTask()} (mirroring the generic artifacts DSL); enabling
- * {@code generateReferences} additionally generates a {@code <ProjectName>References} Java interface
- * (per source set) exposing the bundled charts' resource paths.
+ * {@link HelmChart#importResourcesTask()} (mirroring the generic artifacts DSL); when a chart is
+ * bundled and the {@code java} plugin is applied, the plugin also generates a
+ * {@code <ProjectName>Charts} Java interface (per source set) exposing the bundled charts' resource
+ * paths.
  *
  * <p>Apply with:
  * <pre>
@@ -85,7 +86,6 @@ public class HelmPlugin implements Plugin<Project> {
         HelmExtension extension = project.getExtensions()
                 .create(EXTENSION_NAME, HelmExtension.class);
         extension.getExecutable().convention("helm");
-        extension.getGenerateReferences().convention(false);
         extension.getReferencesPackage().convention(
                 project.provider(() -> String.valueOf(project.getGroup())));
         extension.getReferencesClassName().convention(project.provider(() ->
@@ -112,9 +112,9 @@ public class HelmPlugin implements Plugin<Project> {
         // structural decisions (e.g. whether a lint task exists) see final values.
         project.afterEvaluate(p -> {
             extension.getCharts().forEach(chart -> registerChart(p, chart, component));
-            // When opted in and a Java plugin is applied, expose the resource paths of the charts
-            // that bundled themselves into resources through a generated interface.
-            if (extension.getGenerateReferences().get() && p.getPluginManager().hasPlugin("java")) {
+            // When a Java plugin is applied, expose the resource paths of the charts that bundled
+            // themselves into resources through a generated interface. No-ops when none bundled.
+            if (p.getPluginManager().hasPlugin("java")) {
                 registerReferences(p, extension);
             }
         });

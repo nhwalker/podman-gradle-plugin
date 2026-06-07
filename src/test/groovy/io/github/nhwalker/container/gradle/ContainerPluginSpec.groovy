@@ -3,8 +3,14 @@ package io.github.nhwalker.container.gradle
 import io.github.nhwalker.container.gradle.tasks.ContainerBuildTask
 import io.github.nhwalker.container.gradle.tasks.ContainerCopyFromImageTask
 import io.github.nhwalker.container.gradle.tasks.ContainerExecTask
+import io.github.nhwalker.container.gradle.tasks.ContainerLoadTask
+import io.github.nhwalker.container.gradle.tasks.ContainerPullTask
 import io.github.nhwalker.container.gradle.tasks.ContainerPushTask
+import io.github.nhwalker.container.gradle.tasks.ContainerRemoveContainerTask
+import io.github.nhwalker.container.gradle.tasks.ContainerRemoveImageTask
 import io.github.nhwalker.container.gradle.tasks.ContainerRunTask
+import io.github.nhwalker.container.gradle.tasks.ContainerSaveTask
+import io.github.nhwalker.container.gradle.tasks.ContainerStopTask
 import org.gradle.api.InvalidUserDataException
 import org.gradle.testfixtures.ProjectBuilder
 import spock.lang.Specification
@@ -141,5 +147,90 @@ class ContainerPluginSpec extends Specification {
                 'example/app:latest',
                 'registry.example.com/example/app:latest'
         ]
+    }
+
+    def "pull task renders platform, tls-verify and image"() {
+        given:
+        def task = project.tasks.register('pull', ContainerPullTask) {
+            it.image.set('example/app:1.0')
+            it.platform.set('linux/arm64')
+            it.tlsVerify.set(true)
+        }.get()
+
+        expect:
+        task.assembleCommand() == [
+                'podman', 'pull', '--platform', 'linux/arm64', '--tls-verify=true', 'example/app:1.0'
+        ]
+    }
+
+    def "stop task renders the timeout and containers"() {
+        given:
+        def task = project.tasks.register('stop', ContainerStopTask) {
+            it.containers.set(['a', 'b'])
+            it.stopTimeout.set(5)
+        }.get()
+
+        expect:
+        task.assembleCommand() == ['podman', 'stop', '--time', '5', 'a', 'b']
+    }
+
+    def "stop task renders the all flag"() {
+        given:
+        def task = project.tasks.register('stopAll', ContainerStopTask) {
+            it.all.set(true)
+            it.containers.set([])
+        }.get()
+
+        expect:
+        task.assembleCommand() == ['podman', 'stop', '--all']
+    }
+
+    def "remove-container task renders force, volumes and containers"() {
+        given:
+        def task = project.tasks.register('rm', ContainerRemoveContainerTask) {
+            it.containers.set(['app'])
+            it.force.set(true)
+            it.volumes.set(true)
+        }.get()
+
+        expect:
+        task.assembleCommand() == ['podman', 'rm', '--force', '--volumes', 'app']
+    }
+
+    def "remove-image task renders force and images"() {
+        given:
+        def task = project.tasks.register('rmi', ContainerRemoveImageTask) {
+            it.images.set(['example/app:1.0'])
+            it.force.set(true)
+        }.get()
+
+        expect:
+        task.assembleCommand() == ['podman', 'rmi', '--force', 'example/app:1.0']
+    }
+
+    def "save task renders format, output and image"() {
+        given:
+        def out = project.layout.buildDirectory.file('img.tar').get().asFile
+        def task = project.tasks.register('save', ContainerSaveTask) {
+            it.image.set('example/app:1.0')
+            it.format.set('oci-archive')
+            it.outputFile.set(project.layout.buildDirectory.file('img.tar'))
+        }.get()
+
+        expect:
+        task.assembleCommand() == [
+                'podman', 'save', '--format', 'oci-archive', '-o', out.absolutePath, 'example/app:1.0'
+        ]
+    }
+
+    def "load task renders the input archive"() {
+        given:
+        def input = project.layout.buildDirectory.file('img.tar').get().asFile
+        def task = project.tasks.register('load', ContainerLoadTask) {
+            it.inputFile.set(project.layout.buildDirectory.file('img.tar'))
+        }.get()
+
+        expect:
+        task.assembleCommand() == ['podman', 'load', '-i', input.absolutePath]
     }
 }

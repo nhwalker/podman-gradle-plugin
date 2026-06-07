@@ -95,14 +95,16 @@ public abstract class HelmPackageTask extends AbstractHelmTask {
 
     @Override
     public void execute() {
+        if (getDryRun().get()) {
+            // Log the command and skip; dry-run must not touch the filesystem.
+            runSubcommand(buildSubcommand(), false);
+            return;
+        }
+
         Path dest = destinationDir();
         prepareCleanDirectory(dest);
 
         runSubcommand(buildSubcommand(), false);
-
-        if (getDryRun().get()) {
-            return;
-        }
 
         Path output = getPackagedChart().get().getAsFile().toPath();
         try (Stream<Path> produced = Files.list(dest)) {

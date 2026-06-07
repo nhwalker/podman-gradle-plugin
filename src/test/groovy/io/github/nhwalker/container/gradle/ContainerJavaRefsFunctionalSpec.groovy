@@ -7,10 +7,11 @@ import spock.lang.TempDir
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
- * Functional tests for the generated {@code <ProjectName>Images} interface: it is
- * produced when a Java plugin is applied and {@code generateJavaRefs} is enabled,
- * carries each image's primary tag, refreshes when an image builds, and is compiled
- * as part of the project's main sources.
+ * Functional tests for the generated {@code <ProjectName>Images} interface: it is produced when a
+ * Java plugin is applied and an image opts in via
+ * {@code javaReference(...)}. Each opted-in image's constant carries the digest-pinned reference read
+ * from its reference file, the interface is compiled as part of the chosen source set, and the
+ * container-engine dependency is scoped to that source set.
  */
 class ContainerJavaRefsFunctionalSpec extends Specification {
 
@@ -40,37 +41,37 @@ exit 0
                 .forwardOutput()
     }
 
-    def "generates the images interface when an image is built"() {
+    def "generates the images interface for opted-in images, with the digest-pinned reference"() {
         given:
         buildFile << """
             plugins { id 'java'; id 'io.github.nhwalker.container' }
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
                 images {
-                    app { tags = ['example/app:1.0', 'example/app:latest'] }
-                    webServer { tags = ['example/web:2.0'] }
+                    app { tags = ['example/app:1.0', 'example/app:latest']; javaReference() }
+                    webServer { tags = ['example/web:2.0']; javaReference() }
                 }
             }
         """
 
         when:
-        def result = runner('buildAppImage').build()
+        def result = runner('generateImageReferences').build()
 
-        then: 'the build of an image triggers generation'
+        then: 'the images were built and their references written ahead of generation'
         result.task(':buildAppImage').outcome == SUCCESS
+        result.task(':writeAppImageReference').outcome == SUCCESS
         result.task(':generateImageReferences').outcome == SUCCESS
 
-        and: 'the interface carries the primary (first) tag of each image'
+        and: 'each constant carries the reference-file contents (tag with the digest appended in place)'
         def generated = new File(dir,
                 'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
         text.contains('public interface FixtureImages')
-        text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0");')
-        text.contains('public static final String WEB_SERVER = FixtureImagesLoader.load("WEB_SERVER", "example/web:2.0");')
+        text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0@sha256:deadbeef");')
+        text.contains('public static final String WEB_SERVER = FixtureImagesLoader.load("WEB_SERVER", "example/web:2.0@sha256:deadbeef");')
     }
 
     def "the generated interface is compiled with the project's main sources"() {
@@ -80,8 +81,7 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
-                images { app { tags = ['example/app:1.0'] } }
+                images { app { tags = ['example/app:1.0']; javaReference() } }
             }
         """
         def src = new File(dir, 'src/main/java/com/example/Consumer.java')
@@ -93,12 +93,72 @@ exit 0
             }
         """
 
-        when: 'compiling the project resolves the generated interface'
+        when: 'compiling the project resolves (and so generates + builds) the interface'
         def result = runner('compileJava').build()
 
         then:
+        result.task(':buildAppImage').outcome == SUCCESS
         result.task(':generateImageReferences').outcome == SUCCESS
         result.task(':compileJava').outcome == SUCCESS
+    }
+
+    def "an opted-out image contributes no constant"() {
+        given:
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                images {
+                    app   { tags = ['example/app:1.0'];   javaReference() }
+                    other { tags = ['example/other:1.0'] }   // no javaReference()
+                }
+            }
+        """
+
+        when:
+        def result = runner('generateImageReferences').build()
+
+        then: 'only the opted-in image is built and only its constant appears'
+        result.task(':buildAppImage').outcome == SUCCESS
+        result.task(':buildOtherImage') == null
+        def text = new File(dir,
+                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java').text
+        text.contains('public static final String APP =')
+        !text.contains('OTHER')
+    }
+
+    def "an image exposed only to test keeps the main compilation engine-free"() {
+        given:
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                images { itBase { tags = ['example/it-base:1.0']; javaReference('test') } }
+            }
+        """
+
+        when: 'compiling the main sources'
+        def main = runner('compileJava').build()
+
+        then: 'the image is never built and neither interface is generated for main'
+        main.task(':buildItBaseImage') == null
+        main.task(':generateImageReferences') == null
+        main.task(':generateTestImageReferences') == null
+        !new File(dir, 'build/generated/sources/containerImageRefs/java/test').exists()
+
+        when: 'compiling the test sources'
+        def test = runner('compileTestJava').build()
+
+        then: 'the test interface is generated, building + inspecting the image first'
+        test.task(':buildItBaseImage').outcome == SUCCESS
+        test.task(':writeItBaseImageReference').outcome == SUCCESS
+        test.task(':generateTestImageReferences').outcome == SUCCESS
+
+        and: 'the suffixed interface lands in the test source set with the digest-pinned reference'
+        new File(dir, 'build/generated/sources/containerImageRefs/java/test/com/example/FixtureImagesTest.java')
+                .text.contains('public static final String IT_BASE = FixtureImagesTestLoader.load("IT_BASE", "example/it-base:1.0@sha256:deadbeef");')
     }
 
     def "eclipseClasspath builds the images and generates the interface"() {
@@ -108,8 +168,7 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
-                images { app { tags = ['example/app:1.0'] } }
+                images { app { tags = ['example/app:1.0']; javaReference() } }
             }
         """
 
@@ -127,24 +186,45 @@ exit 0
         new File(dir, '.classpath').text.contains('build/generated/sources/containerImageRefs/java/main')
     }
 
-    def "no interface is generated unless generateJavaRefs is enabled"() {
+    def "no interface is generated when no image opts in"() {
         given:
         buildFile << """
             plugins { id 'java'; id 'io.github.nhwalker.container' }
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                images { app { tags = ['example/app:1.0'] } }
+                images { app { tags = ['example/app:1.0'] } }   // no javaReference()
             }
         """
 
         when:
         def result = runner('buildAppImage').build()
 
-        then: 'the generation task is never registered'
+        then: 'with nothing opted in, the generation task is never registered'
         result.task(':buildAppImage').outcome == SUCCESS
         result.task(':generateImageReferences') == null
         !new File(dir, 'build/generated/sources/containerImageRefs').exists()
+    }
+
+    def "the generated images interface is configuration-cache compatible"() {
+        given:
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                images { app { tags = ['example/app:1.0']; javaReference() } }
+            }
+        """
+
+        when:
+        runner('generateImageReferences', '--configuration-cache').build()
+        def result = runner('generateImageReferences', '--configuration-cache').build()
+
+        then:
+        result.output.contains('Reusing configuration cache.')
+        new File(dir, 'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java')
+                .text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0@sha256:deadbeef");')
     }
 
     def "container and generic-artifacts plugins generate separate, non-colliding interfaces"() {
@@ -154,11 +234,9 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
-                images { app { tags = ['example/app:1.0'] } }
+                images { app { tags = ['example/app:1.0']; javaReference() } }
             }
             genericArtifacts {
-                generateReferences = true
                 references { apiBaseUrl { value = 'https://api.example.com' } }
             }
         """
@@ -180,7 +258,7 @@ exit 0
         result.task(':generateArtifactReferences').outcome == SUCCESS
         result.task(':compileJava').outcome == SUCCESS
         new File(dir, 'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java')
-                .text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0");')
+                .text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0@sha256:deadbeef");')
         new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
                 .text.contains('public static final String API_BASE_URL = FixtureReferencesLoader.load("API_BASE_URL", "https://api.example.com");')
     }
@@ -192,9 +270,8 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
                 referencesClassName = 'MyImages'
-                images { app { tags = ['example/app:1.0'] } }
+                images { app { tags = ['example/app:1.0']; javaReference() } }
             }
         """
 
@@ -217,7 +294,6 @@ exit 0
                 images { app { tags = ['example/app:1.0'] } }   // includeDigest defaults to true
             }
             genericArtifacts {
-                generateReferences = true
                 consume    { appRef   { from project(':'); classifier = 'app-reference' } }
                 references { appImage { fromFile genericArtifacts.consume.appRef.files } }
             }

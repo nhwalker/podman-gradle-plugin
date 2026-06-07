@@ -65,7 +65,6 @@ public class ArtifactsPlugin implements Plugin<Project> {
     public void apply(Project project) {
         ArtifactsExtension extension = project.getExtensions()
                 .create(EXTENSION_NAME, ArtifactsExtension.class);
-        extension.getGenerateReferences().convention(false);
         extension.getReferencesPackage().convention(
                 project.provider(() -> String.valueOf(project.getGroup())));
         extension.getReferencesClassName().convention(project.provider(() ->
@@ -83,9 +82,10 @@ public class ArtifactsPlugin implements Plugin<Project> {
         project.afterEvaluate(p -> {
             extension.getProduce().forEach(artifact -> registerProducer(p, artifact, component));
             extension.getConsume().forEach(artifact -> registerConsumer(p, artifact));
-            // When opted in and a Java plugin is applied, expose the resource path of every
-            // produced artifact that bundled itself into resources through a generated interface.
-            if (extension.getGenerateReferences().get() && p.getPluginManager().hasPlugin("java")) {
+            // When a Java plugin is applied, expose the resource path of every produced artifact that
+            // bundled itself into resources (plus any references{} values) through a generated
+            // interface. No-ops when nothing contributes a constant.
+            if (p.getPluginManager().hasPlugin("java")) {
                 registerReferences(p, extension);
             }
         });
