@@ -20,6 +20,7 @@ import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Sync;
+import org.gradle.api.tasks.TaskContainer;
 import org.gradle.api.tasks.TaskProvider;
 
 /**
@@ -153,36 +154,51 @@ public abstract class ConsumedArtifact implements Named {
 
     // ---- staging tasks ----------------------------------------------------------
 
-    /** Registers a {@code Sync} task staging the resolved files into {@code build/inputs/<name>}. */
+    /**
+     * Registers (or returns) a {@code Sync} task staging the resolved files into
+     * {@code build/inputs/<name>}. Safe to call anywhere as a dependency handle — e.g.
+     * {@code from genericArtifacts.consume.x.downloadTask()} inside another task — because it
+     * never reconfigures an already-registered task.
+     */
     public TaskProvider<Sync> downloadTask() {
-        return downloadTask(task -> { });
+        ConfigurableFileCollection files = getFiles();
+        return stagingTask(downloadTaskName(name),
+                "Stages the '" + name + "' consumed artifact into a directory.",
+                files, files, null);
     }
 
     /**
      * Registers a {@code Sync} task that stages the resolved artifact files into a directory
-     * ({@code build/inputs/<name>} by default), then applies {@code configuration} so callers
-     * can change the destination, add {@code dependsOn}, or wire other tasks to depend on it.
-     * The producing task is wired automatically via the resolved files' build dependencies.
+     * ({@code build/inputs/<name>} by default). The producing task is wired automatically via
+     * the resolved files' build dependencies.
+     *
+     * <p>Idempotent: the first call registers the task, later calls return the same
+     * {@code TaskProvider} and apply {@code configuration} again. Call this overload from a
+     * normal configuration context (e.g. the {@code consume} block); use the no-arg
+     * {@link #downloadTask()} as the handle inside other tasks' configuration blocks.
      */
     public TaskProvider<Sync> downloadTask(Action<? super Sync> configuration) {
-        return project.getTasks().register(downloadTaskName(name), Sync.class, task -> {
-            task.setGroup(TASK_GROUP);
-            task.setDescription("Stages the '" + name + "' consumed artifact into a directory.");
-            task.into(defaultDestination());
-            task.from(getFiles());
-            configuration.execute(task);
-        });
+        ConfigurableFileCollection files = getFiles();
+        return stagingTask(downloadTaskName(name),
+                "Stages the '" + name + "' consumed artifact into a directory.",
+                files, files, configuration);
     }
 
-    /** Registers a {@code Sync} task extracting the resolved archive(s) into {@code build/inputs/<name>}. */
+    /**
+     * Registers (or returns) a {@code Sync} task extracting the resolved archive(s) into
+     * {@code build/inputs/<name>}. Safe to call anywhere as a dependency handle (never
+     * reconfigures an already-registered task).
+     */
     public TaskProvider<Sync> unpackTask() {
-        return unpackTask(task -> { });
+        return unpackTask(null);
     }
 
     /**
      * Registers a {@code Sync} task that extracts the contents of the resolved zip/tar
-     * archive(s) into a directory ({@code build/inputs/<name>} by default), then applies
-     * {@code configuration}. The archive format is detected per file from its extension.
+     * archive(s) into a directory ({@code build/inputs/<name>} by default). The archive
+     * format is detected per file from its extension.
+     *
+     * <p>Idempotent, exactly like {@link #downloadTask(Action)}.
      */
     public TaskProvider<Sync> unpackTask(Action<? super Sync> configuration) {
         // Capture the service + file collection (not `this`) so the lazy source is CC-safe.
@@ -196,13 +212,37 @@ public abstract class ConsumedArtifact implements Named {
                                     ? archives.tarTree(archive) : archives.zipTree(archive);
                         })
                         .collect(Collectors.toList()));
-        return project.getTasks().register(unpackTaskName(name), Sync.class, task -> {
+        return stagingTask(unpackTaskName(name),
+                "Unpacks the '" + name + "' consumed archive into a directory.",
+                files, trees, configuration);
+    }
+
+    /**
+     * Registers the {@code Sync} task on first call (default destination, depending on
+     * {@code buildDependency} and copying from {@code source}), or returns the existing one on
+     * later calls. A non-null {@code configuration} is applied either way; a null one (the no-arg
+     * handle path) never reconfigures an existing task, so it is safe to call from within another
+     * task's configuration block.
+     */
+    private TaskProvider<Sync> stagingTask(String taskName, String description,
+            Object buildDependency, Object source, Action<? super Sync> configuration) {
+        TaskContainer tasks = project.getTasks();
+        if (tasks.getNames().contains(taskName)) {
+            TaskProvider<Sync> existing = tasks.named(taskName, Sync.class);
+            if (configuration != null) {
+                existing.configure(configuration);
+            }
+            return existing;
+        }
+        return tasks.register(taskName, Sync.class, task -> {
             task.setGroup(TASK_GROUP);
-            task.setDescription("Unpacks the '" + name + "' consumed archive into a directory.");
-            task.dependsOn(files);
+            task.setDescription(description);
+            task.dependsOn(buildDependency);
             task.into(defaultDestination());
-            task.from(trees);
-            configuration.execute(task);
+            task.from(source);
+            if (configuration != null) {
+                configuration.execute(task);
+            }
         });
     }
 

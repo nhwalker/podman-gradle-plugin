@@ -209,6 +209,23 @@ class ArtifactsPluginSpec extends Specification {
                 project.layout.buildDirectory.dir('custom').get().asFile
     }
 
+    def "downloadTask is idempotent: repeated calls return the same task and apply each configuration"() {
+        given:
+        project.genericArtifacts { consume { theReport { from 'com.example:lib:1.0'; classifier = 'report' } } }
+        def consumer = project.genericArtifacts.consume.theReport
+
+        when: 'called twice with different configuration blocks'
+        def first = consumer.downloadTask { into project.layout.buildDirectory.dir('one') }
+        def second = consumer.downloadTask { group = 'custom-group' }
+
+        then: 'the same task is returned and both configurations were applied'
+        first.name == second.name
+        project.tasks.withType(org.gradle.api.tasks.Sync).findAll { it.name == 'downloadTheReport' }.size() == 1
+        def task = project.tasks.getByName('downloadTheReport')
+        task.destinationDir == project.layout.buildDirectory.dir('one').get().asFile
+        task.group == 'custom-group'
+    }
+
     def "a consumer can request native (non-namespaced) attributes for selecting a JVM variant"() {
         given:
         project.genericArtifacts {

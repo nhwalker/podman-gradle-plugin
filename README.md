@@ -1063,6 +1063,39 @@ genericArtifacts {
 tasks.named('assembleSite') { dependsOn genericArtifacts.consume.theReport.downloadTask() }
 ```
 
+Both methods are **idempotent**: the first call registers the task, and the no-arg
+`downloadTask()` / `unpackTask()` thereafter return the *same* `TaskProvider` without
+reconfiguring — so the accessor itself is the handle other tasks depend on, and it's safe
+to call from inside another task's configuration block. Because a task is a file collection
+of its outputs, consuming that output wires the dependency automatically (no `dependsOn`
+needed):
+
+```groovy
+genericArtifacts {
+    consume {
+        theReport { from 'com.example:platform:1.0'; classifier = 'report'; downloadTask() }
+    }
+}
+
+// BEST — consume the staged output; the dependency on downloadTheReport is inferred
+tasks.register('publishSite', Copy) {
+    from genericArtifacts.consume.theReport.downloadTask()
+    into layout.buildDirectory.dir('site')
+}
+
+// typed DirectoryProperty input (also carries the dependency)
+tasks.register('process', MyTask) {
+    inputDir.fileProvider(genericArtifacts.consume.theReport.downloadTask().map { it.destinationDir })
+}
+
+// pure ordering, when the task doesn't take the files as input
+tasks.named('check') { dependsOn genericArtifacts.consume.theReport.downloadTask() }
+```
+
+Use the `downloadTask { … }` / `unpackTask { … }` overload (with a closure) to configure
+the `Sync` from a normal context such as the `consume` block; use the no-arg form as the
+handle elsewhere.
+
 ### Composite builds
 
 Because identity is the project coordinate and selection is an attribute, an included

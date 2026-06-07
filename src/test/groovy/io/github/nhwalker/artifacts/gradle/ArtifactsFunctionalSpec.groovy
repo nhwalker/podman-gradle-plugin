@@ -307,6 +307,39 @@ class ArtifactsFunctionalSpec extends Specification {
         new File(dir, 'consumer/build/inputs/theBundle/hello.txt').text == 'inside-zip'
     }
 
+    def "an arbitrary task depends on a staging task via the idempotent accessor + its output"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='wire'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            ${producerBody('wired-report')}
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theReport { from project(':producer'); classifier = 'report'; downloadTask() } }
+            }
+            // a second, idempotent call returns the SAME task; consuming its output wires the dependency
+            tasks.register('useStaged', Copy) {
+                from genericArtifacts.consume.theReport.downloadTask()
+                into layout.buildDirectory.dir('used')
+            }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:useStaged').build()
+
+        then: 'the staging task ran before the arbitrary task, and its staged content flowed through'
+        result.task(':producer:makeReport').outcome == SUCCESS
+        result.task(':consumer:downloadTheReport').outcome == SUCCESS
+        result.task(':consumer:useStaged').outcome == SUCCESS
+        def order = result.tasks*.path
+        order.indexOf(':consumer:downloadTheReport') < order.indexOf(':consumer:useStaged')
+        new File(dir, 'consumer/build/used/report.txt').text == 'wired-report'
+    }
+
     def "exposes and consumes an application distribution archive as a generic artifact"() {
         given: 'an application project that publishes its distZip as a generic artifact'
         new File(dir, 'settings.gradle') << "rootProject.name='distmix'\ninclude ':producer', ':consumer'\n"
