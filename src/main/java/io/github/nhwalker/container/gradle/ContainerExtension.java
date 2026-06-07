@@ -75,6 +75,14 @@ public abstract class ContainerExtension {
      */
     public abstract Property<String> getJavaRefsPackage();
 
+    /**
+     * The name of the generated interface. Defaults to {@code <ProjectName>Images}; override to
+     * customize (e.g. {@code 'MyImages'}). Named {@code referencesClassName} consistently with the
+     * helm and generic-artifacts plugins. Image references are always {@code main}, so the value is
+     * used verbatim.
+     */
+    public abstract Property<String> getReferencesClassName();
+
     /** The images declared for this project. */
     public NamedDomainObjectContainer<ContainerImage> getImages() {
         return images;

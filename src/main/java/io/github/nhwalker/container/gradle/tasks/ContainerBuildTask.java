@@ -133,7 +133,7 @@ public abstract class ContainerBuildTask extends AbstractContainerTask {
         return args;
     }
 
-    /** Reads the first line (the image coordinate) of a base image's resolved reference file. */
+    /** Reads the first line (the image reference, digest-pinned when available) of a base image's reference file. */
     private static String readReference(BaseImageReference base) {
         Set<File> files = base.getReferenceFiles().getFiles();
         if (files.isEmpty()) {

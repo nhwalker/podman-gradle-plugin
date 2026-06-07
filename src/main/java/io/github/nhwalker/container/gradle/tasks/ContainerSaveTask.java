@@ -46,7 +46,7 @@ public abstract class ContainerSaveTask extends AbstractContainerTask {
      * the task only on the tag string would leave the archive stale after a same-tag
      * rebuild. The {@code images { }} DSL wires the image's reference file (which
      * carries the digest, refreshed on every build) in here, so a content change flips
-     * the digest line and re-runs the save, while an unchanged rebuild leaves it
+     * the recorded digest and re-runs the save, while an unchanged rebuild leaves it
      * up-to-date. These files are never part of the command line; they exist purely so
      * the up-to-date check tracks the image's content identity rather than just its tag.
      */

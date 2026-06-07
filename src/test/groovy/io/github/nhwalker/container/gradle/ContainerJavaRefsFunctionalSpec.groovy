@@ -69,8 +69,8 @@ exit 0
         def text = generated.text
         text.contains('package com.example;')
         text.contains('public interface FixtureImages')
-        text.contains('public static final String APP = "example/app:1.0";')
-        text.contains('public static final String WEB_SERVER = "example/web:2.0";')
+        text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0");')
+        text.contains('public static final String WEB_SERVER = FixtureImagesLoader.load("WEB_SERVER", "example/web:2.0");')
     }
 
     def "the generated interface is compiled with the project's main sources"() {
@@ -145,5 +145,94 @@ exit 0
         result.task(':buildAppImage').outcome == SUCCESS
         result.task(':generateImageReferences') == null
         !new File(dir, 'build/generated/sources/containerImageRefs').exists()
+    }
+
+    def "container and generic-artifacts plugins generate separate, non-colliding interfaces"() {
+        given: 'a project applying both plugins, each opting into references'
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                generateJavaRefs = true
+                images { app { tags = ['example/app:1.0'] } }
+            }
+            genericArtifacts {
+                generateReferences = true
+                references { apiBaseUrl { value = 'https://api.example.com' } }
+            }
+        """
+        def src = new File(dir, 'src/main/java/com/example/Consumer.java')
+        src.parentFile.mkdirs()
+        src << """
+            package com.example;
+            public class Consumer {
+                public static final String IMAGE = FixtureImages.APP;
+                public static final String URL = FixtureReferences.API_BASE_URL;
+            }
+        """
+
+        when: 'both interfaces are generated and compiled together'
+        def result = runner('compileJava').build()
+
+        then: 'each plugin emits its own domain-named interface, side by side'
+        result.task(':generateImageReferences').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':compileJava').outcome == SUCCESS
+        new File(dir, 'build/generated/sources/containerImageRefs/java/main/com/example/FixtureImages.java')
+                .text.contains('public static final String APP = FixtureImagesLoader.load("APP", "example/app:1.0");')
+        new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+                .text.contains('public static final String API_BASE_URL = FixtureReferencesLoader.load("API_BASE_URL", "https://api.example.com");')
+    }
+
+    def "the generated interface name is customizable"() {
+        given:
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                generateJavaRefs = true
+                referencesClassName = 'MyImages'
+                images { app { tags = ['example/app:1.0'] } }
+            }
+        """
+
+        when:
+        def result = runner('generateImageReferences').build()
+
+        then: 'the interface uses the overridden name'
+        result.task(':generateImageReferences').outcome == SUCCESS
+        new File(dir, 'build/generated/sources/containerImageRefs/java/main/com/example/MyImages.java')
+                .text.contains('public interface MyImages')
+    }
+
+    def "a generic reference captures a container image reference via fromFile"() {
+        given: 'the container plugin publishes the image reference; the artifacts plugin consumes it'
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                images { app { tags = ['example/app:1.0'] } }   // includeDigest defaults to true
+            }
+            genericArtifacts {
+                generateReferences = true
+                consume    { appRef   { from project(':'); classifier = 'app-reference' } }
+                references { appImage { fromFile genericArtifacts.consume.appRef.files } }
+            }
+        """
+
+        when:
+        def result = runner('generateArtifactReferences').build()
+
+        then: 'building the image and writing its reference are wired ahead of generation'
+        result.task(':buildAppImage').outcome == SUCCESS
+        result.task(':writeAppImageReference').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+
+        and: 'the single-line tag@digest reference lands verbatim in the generated constant'
+        new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+                .text.contains('public static final String APP_IMAGE = FixtureReferencesLoader.load("APP_IMAGE", "example/app:1.0@sha256:deadbeef");')
     }
 }

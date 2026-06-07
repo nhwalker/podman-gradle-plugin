@@ -1,6 +1,7 @@
 package io.github.nhwalker.container.gradle;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -11,22 +12,23 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
-import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.TaskProvider;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
+import io.github.nhwalker.artifacts.gradle.tasks.GenerateReferencesTask;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 import io.github.nhwalker.container.gradle.tasks.AbstractContainerTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerBuildTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerImageReferenceTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerSaveTask;
-import io.github.nhwalker.container.gradle.tasks.GenerateImageReferencesTask;
 
 /**
  * Registers the {@code container} extension, applies its configuration as conventions
@@ -53,6 +55,9 @@ public class ContainerPlugin implements Plugin<Project> {
     /** The task that generates the {@code <ProjectName>Images} Java interface. */
     public static final String GENERATE_JAVA_REFS_TASK = "generateImageReferences";
 
+    /** The {@code <Domain>} segment of this plugin's generated interface name. */
+    public static final String REFERENCES_DOMAIN = "Images";
+
     private final SoftwareComponentFactory softwareComponentFactory;
 
     @Inject
@@ -68,6 +73,8 @@ public class ContainerPlugin implements Plugin<Project> {
         extension.getGenerateJavaRefs().convention(false);
         extension.getJavaRefsPackage().convention(
                 project.provider(() -> String.valueOf(project.getGroup())));
+        extension.getReferencesClassName().convention(project.provider(() ->
+                ResourceImports.defaultReferencesBaseName(project.getName(), REFERENCES_DOMAIN)));
 
         project.getTasks().withType(AbstractContainerTask.class).configureEach(task -> {
             task.setGroup(TASK_GROUP);
@@ -107,36 +114,29 @@ public class ContainerPlugin implements Plugin<Project> {
 
     private void registerJavaRefs(Project project, ContainerExtension extension,
             List<TaskProvider<ContainerBuildTask>> buildTasks) {
-        var generateTask = project.getTasks().register(
-                GENERATE_JAVA_REFS_TASK, GenerateImageReferencesTask.class, t -> {
-                    t.setGroup(TASK_GROUP);
-                    t.setDescription("Generates the "
-                            + GenerateImageReferencesTask.interfaceName(project.getName())
-                            + " interface of built image references.");
-                    t.getProjectName().convention(project.getName());
-                    t.getPackageName().convention(extension.getJavaRefsPackage());
-                    extension.getImages().forEach(image ->
-                            t.getImages().put(image.getName(), image.getTags().map(tags -> tags.get(0))));
-                    t.getOutputDirectory().convention(project.getLayout().getBuildDirectory()
-                            .dir("generated/sources/containerImageRefs/java/main"));
-                });
+        // Each image contributes one constant: its primary tag — an arbitrary String value, not a
+        // bundled resource path. Generate the container plugin's own <ProjectName>Images interface
+        // through the shared generator the helm and generic-artifacts plugins also use.
+        Map<String, Provider<String>> constants = new LinkedHashMap<>();
+        extension.getImages().forEach(image ->
+                constants.put(image.getName(), image.getTags().map(tags -> tags.get(0))));
+        if (constants.isEmpty()) {
+            return;
+        }
+        // Image references are always main, so the configured class name is used verbatim.
+        String className = ResourceImports.withSourceSetSuffix(
+                extension.getReferencesClassName().get(), SourceSet.MAIN_SOURCE_SET_NAME);
+        Provider<Directory> output = project.getLayout().getBuildDirectory()
+                .dir("generated/sources/containerImageRefs/java/main");
+        // Depending on the build tasks (via the helper) makes regenerating the interface — or the
+        // eclipse classpath — build the images first, so the refs are present for the IDE.
+        TaskProvider<GenerateReferencesTask> generate = ResourceImports.generateReferences(project,
+                TASK_GROUP, GENERATE_JAVA_REFS_TASK, className, extension.getJavaRefsPackage(),
+                "Generated by the io.github.nhwalker.container plugin. Do not edit.",
+                constants, output, SourceSet.MAIN_SOURCE_SET_NAME, buildTasks);
 
-        // Compile the generated interface as part of the project's main sources.
-        SourceSet main = project.getExtensions().getByType(SourceSetContainer.class)
-                .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
-        main.getJava().srcDir(generateTask.flatMap(GenerateImageReferencesTask::getOutputDirectory));
-
-        // (Re)generate the interface whenever an image is built.
-        buildTasks.forEach(buildTask -> buildTask.configure(t -> t.finalizedBy(generateTask)));
-
-        // With the eclipse plugin, regenerating the classpath builds the images (which
-        // refreshes the refs); depending on the generator too guarantees the generated
-        // source folder exists before the .classpath that references it is written.
-        project.getPluginManager().withPlugin("eclipse", applied ->
-                project.getTasks().named("eclipseClasspath").configure(t -> {
-                    t.dependsOn(generateTask);
-                    buildTasks.forEach(t::dependsOn);
-                }));
+        // Building any image also refreshes the interface, so the refs track the just-built tags.
+        buildTasks.forEach(buildTask -> buildTask.configure(t -> t.finalizedBy(generate)));
     }
 
     private TaskProvider<ContainerBuildTask> registerImage(Project project, ContainerImage image,

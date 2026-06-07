@@ -513,12 +513,332 @@ class ArtifactsFunctionalSpec extends Specification {
         result.task(':importReportResources').outcome == SUCCESS
         result.task(':generateArtifactReferences').outcome == SUCCESS
         def generated = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java')
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
-        text.contains('public interface FixtureArtifacts')
-        text.contains('public static final String REPORT = "reports/report.txt";')
+        text.contains('public interface FixtureReferences')
+        text.contains('public static final String REPORT = FixtureReferencesLoader.load("REPORT", "reports/report.txt");')
+    }
+
+    def "references expose arbitrary string constants on the generated interface"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                generateReferences = true
+                references {
+                    apiBaseUrl    { value = 'https://api.example.com' }
+                    schemaVersion { value 'v3' }
+                }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'each declared reference is a constant carrying its arbitrary value'
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        def generated = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+        generated.exists()
+        def text = generated.text
+        text.contains('public interface FixtureReferences')
+        text.contains('public static final String API_BASE_URL = FixtureReferencesLoader.load("API_BASE_URL", "https://api.example.com");')
+        text.contains('public static final String SCHEMA_VERSION = FixtureReferencesLoader.load("SCHEMA_VERSION", "v3");')
+    }
+
+    def "the generated interface merges bundled resource paths and arbitrary references"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def reportFile = layout.buildDirectory.file('report.txt')
+            def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
+            genericArtifacts {
+                generateReferences = true
+                produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask() } }
+                references { schemaVersion { value 'v3' } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'the bundle was wired and both kinds of constant appear in one interface'
+        result.task(':importReportResources').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        def text = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+        text.contains('public static final String REPORT = FixtureReferencesLoader.load("REPORT", "report.txt");')
+        text.contains('public static final String SCHEMA_VERSION = FixtureReferencesLoader.load("SCHEMA_VERSION", "v3");')
+    }
+
+    def "references can target a non-main source set, generating a suffixed interface"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                generateReferences = true
+                references          { apiBaseUrl { value = 'https://api.example.com' } }
+                references('test')  { stubUrl    { value = 'http://localhost:8080' } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences', 'generateTestArtifactReferences').build()
+
+        then: 'main and test each get their own interface in their own source set'
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':generateTestArtifactReferences').outcome == SUCCESS
+
+        and: 'main is unsuffixed and carries only the main reference'
+        def main = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+        main.contains('public interface FixtureReferences ')
+        main.contains('public static final String API_BASE_URL = FixtureReferencesLoader.load("API_BASE_URL", "https://api.example.com");')
+        !main.contains('STUB_URL')
+
+        and: 'test is suffixed and carries only the test reference'
+        def test = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/test/com/example/FixtureReferencesTest.java').text
+        test.contains('public interface FixtureReferencesTest ')
+        test.contains('public static final String STUB_URL = FixtureReferencesTestLoader.load("STUB_URL", "http://localhost:8080");')
+        !test.contains('API_BASE_URL')
+    }
+
+    def "references need generateReferences enabled to be generated"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                references { schemaVersion { value 'v3' } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'tasks').build()
+
+        then: 'without the switch no generation task is registered'
+        result.task(':generateArtifactReferences') == null
+        !new File(dir, 'build/generated/sources/genericArtifactRefs').exists()
+    }
+
+    def "the generated interface name is customizable"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                generateReferences = true
+                referencesClassName = 'MyRefs'
+                references          { apiBaseUrl { value = 'https://api.example.com' } }
+                references('test')  { stubUrl    { value = 'http://localhost:8080' } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences', 'generateTestArtifactReferences').build()
+
+        then: 'the override is used as the main name and the source-set suffix is appended for test'
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/MyRefs.java')
+                .text.contains('public interface MyRefs ')
+        new File(dir, 'build/generated/sources/genericArtifactRefs/java/test/com/example/MyRefsTest.java')
+                .text.contains('public interface MyRefsTest ')
+    }
+
+    def "fromFile captures a single-line file's contents as a normal string constant"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def ref = layout.buildDirectory.file('ref.txt')
+            def writeRef = tasks.register('writeRef') { outputs.file(ref); doLast { ref.get().asFile.text = 'example/app:1.0\\n' } }
+            genericArtifacts {
+                generateReferences = true
+                references { appImage { fromFile writeRef.map { ref.get() } } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'the producing task is wired ahead of generation and the trimmed contents become the value'
+        result.task(':writeRef').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+                .text.contains('public static final String APP_IMAGE = FixtureReferencesLoader.load("APP_IMAGE", "example/app:1.0");')
+    }
+
+    def "fromFile renders a multi-line document as a Java text block with the exact value"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'application'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def doc = layout.buildDirectory.file('doc.txt')
+            def writeDoc = tasks.register('writeDoc') { outputs.file(doc); doLast { doc.get().asFile.text = '  line1\\nline2\\n' } }
+            genericArtifacts {
+                generateReferences = true
+                references { motd { fromFile writeDoc.map { doc.get() } } }
+            }
+            application { mainClass = 'com.example.Check' }
+        """
+        def src = new File(dir, 'src/main/java/com/example/Check.java')
+        src.parentFile.mkdirs()
+        // The static method ref captures no Project; a runtime equality check proves the text block
+        // reproduces the document exactly: leading indentation kept and the trailing newline of a
+        // multi-line document preserved.
+        src << '''
+            package com.example;
+            public class Check {
+                public static void main(String[] args) {
+                    if (!FixtureReferences.MOTD.equals("  line1\\nline2\\n")) {
+                        throw new AssertionError("unexpected value: [" + FixtureReferences.MOTD + "]");
+                    }
+                }
+            }
+        '''
+
+        when: 'running compiles the generated interface and asserts its value'
+        def result = runner(dir, 'run').build()
+
+        then:
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':run').outcome == SUCCESS
+
+        and: 'the generated source uses a text block, not an escaped one-liner'
+        def generated = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+        generated.contains('public static final String MOTD = FixtureReferencesLoader.load("MOTD", """')
+        !generated.contains('\\nline2')
+    }
+
+    /**
+     * Writes a `fixture` project (group `com.example`) generating `FixtureReferences.APP` with the
+     * default `example/app:1.0`, plus an application `Check` main that asserts `APP` equals its first
+     * program argument. {@code runConfig} is injected into the build to configure the `run` task
+     * (system properties / program args); callers add override resources or files as needed.
+     */
+    private void appOverrideProject(String runConfig) {
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'application'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                generateReferences = true
+                references { app { value 'example/app:1.0' } }
+            }
+            application { mainClass = 'com.example.Check' }
+            ${runConfig}
+        """
+        def src = new File(dir, 'src/main/java/com/example/Check.java')
+        src.parentFile.mkdirs()
+        src << '''
+            package com.example;
+            public class Check {
+                public static void main(String[] args) {
+                    if (!FixtureReferences.APP.equals(args[0])) {
+                        throw new AssertionError("expected [" + args[0] + "] but was [" + FixtureReferences.APP + "]");
+                    }
+                }
+            }
+        '''
+    }
+
+    def "a system-property override file replaces the generated value at runtime"() {
+        given: 'the run task points the .overrides system property at a properties file'
+        appOverrideProject("""
+            tasks.named('run') {
+                systemProperty 'com.example.FixtureReferences.overrides', file('overrides.properties').absolutePath
+                args 'overridden/value'
+            }
+        """)
+        new File(dir, 'overrides.properties') << 'APP=overridden/value\n'
+
+        when:
+        def result = runner(dir, 'run').build()
+
+        then: 'Check sees the overridden value, not the generated default'
+        result.task(':run').outcome == SUCCESS
+    }
+
+    def "a classpath resource overrides the generated value at runtime"() {
+        given: 'a flat, dot-named properties resource on the classpath, no system property'
+        appOverrideProject("tasks.named('run') { args 'from/classpath' }")
+        def res = new File(dir, 'src/main/resources/com.example.FixtureReferences.properties')
+        res.parentFile.mkdirs()
+        res << 'APP=from/classpath\n'
+
+        when:
+        def result = runner(dir, 'run').build()
+
+        then:
+        result.task(':run').outcome == SUCCESS
+    }
+
+    def "a system-property file wins over a classpath resource for the same key"() {
+        given: 'the same key set in both sources'
+        appOverrideProject("""
+            tasks.named('run') {
+                systemProperty 'com.example.FixtureReferences.overrides', file('overrides.properties').absolutePath
+                args 'from/sysprop'
+            }
+        """)
+        def res = new File(dir, 'src/main/resources/com.example.FixtureReferences.properties')
+        res.parentFile.mkdirs()
+        res << 'APP=from/classpath\n'
+        new File(dir, 'overrides.properties') << 'APP=from/sysprop\n'
+
+        when:
+        def result = runner(dir, 'run').build()
+
+        then: 'the system-property file takes precedence'
+        result.task(':run').outcome == SUCCESS
+    }
+
+    def "a missing override file is ignored and the generated default is used"() {
+        given: 'the system property points at a non-existent file and there is no resource'
+        appOverrideProject("""
+            tasks.named('run') {
+                systemProperty 'com.example.FixtureReferences.overrides', file('does-not-exist.properties').absolutePath
+                args 'example/app:1.0'
+            }
+        """)
+
+        when:
+        def result = runner(dir, 'run').build()
+
+        then: 'Check sees the generated default, silently'
+        result.task(':run').outcome == SUCCESS
+    }
+
+    def "a malformed override file warns and falls back to the generated default"() {
+        given: 'an override file with a malformed unicode escape'
+        appOverrideProject("""
+            tasks.named('run') {
+                systemProperty 'com.example.FixtureReferences.overrides', file('overrides.properties').absolutePath
+                args 'example/app:1.0'
+            }
+        """)
+        // A bad \\uXXXX escape makes Properties.load throw; the loader catches it and keeps the default.
+        new File(dir, 'overrides.properties') << 'APP=\\uXYZW\n'
+
+        when:
+        def result = runner(dir, 'run').build()
+
+        then: 'the build still succeeds and Check sees the default'
+        result.task(':run').outcome == SUCCESS
     }
 
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {

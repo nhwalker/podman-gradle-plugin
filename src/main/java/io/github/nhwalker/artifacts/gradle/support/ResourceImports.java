@@ -35,6 +35,28 @@ public final class ResourceImports {
     }
 
     /**
+     * Appends the capitalized source-set name to a base references-interface name for any non-{@code
+     * main} source set, leaving {@code main} unsuffixed — so a base of {@code FixtureCharts} yields
+     * {@code FixtureCharts} for {@code main} and {@code FixtureChartsTest} for {@code test}.
+     */
+    public static String withSourceSetSuffix(String baseName, String sourceSetName) {
+        if (SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName)) {
+            return baseName;
+        }
+        return baseName + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
+    }
+
+    /**
+     * The conventional base references-interface name: the project name in PascalCase followed by the
+     * {@code domain} word ({@code Images}, {@code Charts}, or {@code References}). Each plugin uses its
+     * own domain so the generated interfaces do not collide; the result is the {@code main} source
+     * set's interface name and the base {@link #withSourceSetSuffix} extends for other source sets.
+     */
+    public static String defaultReferencesBaseName(String projectName, String domain) {
+        return GenerateReferencesTask.pascalCase(projectName) + domain;
+    }
+
+    /**
      * Registers (or returns) a {@code Sync} task that stages {@code source} into {@code destination}
      * and, deferred until the {@code java} plugin is applied, registers that folder onto
      * {@code sourceSetName}'s resources via {@code SourceDirectorySet.srcDir} (so it is bundled into
@@ -94,10 +116,14 @@ public final class ResourceImports {
 
     /**
      * Registers a {@link GenerateReferencesTask} producing the {@code className} interface, adds its
-     * output directory to {@code javaSourceSetName}'s Java sources (so it compiles with the
-     * project), makes it depend on {@code regenerateAfter} (the tasks that materialize the values),
-     * and wires it onto the eclipse classpath. Entries whose value provider resolves to an empty
-     * string are filtered out, so a bundle with no single resolvable file contributes no constant.
+     * output directory to {@code javaSourceSetName}'s Java sources (so it compiles with the project),
+     * makes it depend on {@code regenerateAfter} (the tasks that materialize the values), and wires it
+     * onto the eclipse classpath. Entries whose value provider resolves to an empty string are
+     * filtered out, so a bundle with no single resolvable file contributes no constant.
+     *
+     * <p>Each plugin supplies its own task name, output directory and {@code className} domain, so the
+     * container, helm, and generic-artifacts plugins generate distinct, non-colliding interfaces
+     * ({@code <ProjectName>Images}/{@code Charts}/{@code References}) that can coexist in one project.
      */
     public static TaskProvider<GenerateReferencesTask> generateReferences(Project project,
             String group, String taskName, String className, Provider<String> packageName,

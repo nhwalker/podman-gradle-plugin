@@ -1,7 +1,9 @@
 package io.github.nhwalker.artifacts.gradle.dsl;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
@@ -45,7 +47,7 @@ import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
  * <p>{@link #importResourcesTask} additionally bundles the produced artifact into this project's
  * own jar resources (mirroring the consume side). Combined with the extension's
  * {@code generateReferences} option, the bundled resource path is exposed to Java code through a
- * generated {@code <ProjectName>Artifacts} interface:
+ * generated {@code <ProjectName>References} interface:
  * <pre>
  * genericArtifacts {
  *     generateReferences = true
@@ -61,7 +63,8 @@ public abstract class ProducedArtifact implements Named {
     private final String name;
     private final Project project;
     private final List<ArtifactSpec> artifactSpecs = new ArrayList<>();
-    private TaskProvider<Sync> resourceBundle;
+    // The first bundling task registered for each target source set (insertion-ordered).
+    private final Map<String, TaskProvider<Sync>> resourceBundles = new LinkedHashMap<>();
 
     @Inject
     @SuppressWarnings("this-escape")
@@ -163,19 +166,17 @@ public abstract class ProducedArtifact implements Named {
                 importResourcesTaskName(name, sourceSetName),
                 "Bundles the produced '" + name + "' artifact into the '" + sourceSetName + "' resources.",
                 source, source, sourceSetName, destination, configuration);
-        if (resourceBundle == null) {
-            resourceBundle = task;
-        }
+        resourceBundles.putIfAbsent(sourceSetName, task);
         return task;
     }
 
     /**
-     * The bundling task registered by the first {@link #importResourcesTask} call, or {@code null}
-     * if this artifact does not bundle its files into resources. Read by the plugin to build the
-     * generated references interface.
+     * The bundling tasks registered by {@link #importResourcesTask}, keyed by target source set name
+     * (empty if this artifact does not bundle its files into resources). Read by the plugin to build
+     * the per-source-set generated references interface.
      */
-    public TaskProvider<Sync> getResourceBundle() {
-        return resourceBundle;
+    public Map<String, TaskProvider<Sync>> getResourceBundles() {
+        return resourceBundles;
     }
 
     public static String importResourcesTaskName(String name, String sourceSetName) {

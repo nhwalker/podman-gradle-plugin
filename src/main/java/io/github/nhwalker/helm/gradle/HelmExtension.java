@@ -69,6 +69,14 @@ public abstract class HelmExtension {
      */
     public abstract Property<String> getReferencesPackage();
 
+    /**
+     * The name of the generated interface for the {@code main} source set. Defaults to
+     * {@code <ProjectName>Charts}; override to customize (e.g. {@code 'MyCharts'}). Charts bundled
+     * into a non-{@code main} source set append the capitalized source-set name (e.g.
+     * {@code MyChartsTest}).
+     */
+    public abstract Property<String> getReferencesClassName();
+
     /** The charts declared for this project. */
     public NamedDomainObjectContainer<HelmChart> getCharts() {
         return charts;
