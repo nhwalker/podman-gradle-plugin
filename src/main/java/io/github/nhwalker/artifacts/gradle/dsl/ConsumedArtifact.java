@@ -22,10 +22,11 @@ import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
-import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskContainer;
 import org.gradle.api.tasks.TaskProvider;
+
+import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 
 /**
  * A single artifact dependency declared in {@code genericArtifacts { consume { } }}.
@@ -245,6 +246,14 @@ public abstract class ConsumedArtifact implements Named {
     }
 
     /**
+     * Copies the resolved artifact file(s) into the named source set's resources. See
+     * {@link #importResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importResourcesTask(String sourceSetName) {
+        return importResourcesTask(sourceSetName, null);
+    }
+
+    /**
      * Registers a {@code Sync} task that copies the resolved artifact file(s) into the named
      * source set's resources (e.g. {@code main} or {@code test}), bundling them into the jar and
      * surfacing them on the eclipse classpath. The files are staged under
@@ -282,6 +291,14 @@ public abstract class ConsumedArtifact implements Named {
     }
 
     /**
+     * Extracts the resolved archive(s) into the named source set's resources. See
+     * {@link #importUnpackedResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importUnpackedResourcesTask(String sourceSetName) {
+        return importUnpackedResourcesTask(sourceSetName, null);
+    }
+
+    /**
      * Registers a {@code Sync} task that extracts the contents of the resolved zip/tar archive(s)
      * into the named source set's resources, bundling them into the jar. The archive format is
      * detected per file from its extension. Staging location, copy-spec {@code configuration},
@@ -311,39 +328,18 @@ public abstract class ConsumedArtifact implements Named {
     }
 
     /**
-     * Registers the resource-import {@code Sync} task on first call — staging into a generated
-     * resource folder, copying from {@code source} (with {@code configuration} applied to the copy
-     * spec so it can nest into a subdirectory or filter), and registering that folder on the named
-     * source set's resources via {@code SourceDirectorySet.srcDir}. The {@code srcDir} carries the
-     * task as its build dependency, and the wiring is deferred with {@code withPlugin("java", ...)}
-     * so plugin-application order does not matter. Later calls return the same task as an idempotent
-     * dependency handle without reconfiguring or re-wiring it.
+     * Stages {@code source} into {@code build/generated/resources/genericArtifacts/<name>/<sourceSet>}
+     * and registers that folder on the named source set's resources, via the shared
+     * {@link ResourceImports#register} helper. {@code configuration} configures the copy spec so it
+     * can nest into a subdirectory or filter while the staged root stays put. Later calls return the
+     * same task as an idempotent dependency handle.
      */
     private TaskProvider<Sync> resourceImportTask(String taskName, String description,
             Object buildDependency, Object source, String sourceSetName, Action<? super CopySpec> configuration) {
-        TaskContainer tasks = project.getTasks();
-        if (tasks.getNames().contains(taskName)) {
-            return tasks.named(taskName, Sync.class);
-        }
         Provider<Directory> destination = project.getLayout().getBuildDirectory()
                 .dir("generated/resources/genericArtifacts/" + name + "/" + sourceSetName);
-        TaskProvider<Sync> registered = tasks.register(taskName, Sync.class, task -> {
-            task.setGroup(TASK_GROUP);
-            task.setDescription(description);
-            task.dependsOn(buildDependency);
-            task.into(destination);
-            if (configuration != null) {
-                task.from(source, configuration);
-            } else {
-                task.from(source);
-            }
-        });
-        project.getPluginManager().withPlugin("java", applied -> {
-            SourceSet sourceSet = project.getExtensions().getByType(SourceSetContainer.class)
-                    .getByName(sourceSetName);
-            sourceSet.getResources().srcDir(registered.map(Sync::getDestinationDir));
-        });
-        return registered;
+        return ResourceImports.register(project, TASK_GROUP, taskName, description,
+                buildDependency, source, sourceSetName, destination, configuration);
     }
 
     /**

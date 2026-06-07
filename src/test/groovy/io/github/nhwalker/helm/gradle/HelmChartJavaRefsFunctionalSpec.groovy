@@ -9,11 +9,11 @@ import java.util.zip.ZipFile
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
- * Functional tests for the generated {@code <ProjectName>Charts} interface and chart
- * bundling: enabled when a Java plugin is applied and {@code generateJavaRefs} is set,
- * it bundles each packaged chart into the jar at {@code charts/<chart>.tgz}, exposes
- * that resource path as a constant, refreshes when a chart is packaged, compiles with
- * the project's sources, and is wired into the eclipse classpath.
+ * Functional tests for bundling charts into resources and the generated
+ * {@code <ProjectName>Charts} interface. Charts opt into bundling with
+ * {@code importResourcesTask()} (mirroring the generic artifacts DSL): the chart lands in the jar
+ * at {@code charts/<chart>.tgz}, and when {@code generateReferences} is on that path is exposed as
+ * a constant, compiled with the project's sources and wired onto the eclipse classpath.
  */
 class HelmChartJavaRefsFunctionalSpec extends Specification {
 
@@ -59,7 +59,7 @@ exit 0
         new File(chartDir, 'Chart.yaml') << "apiVersion: v2\nname: ${name}\nversion: 0.0.0\n"
     }
 
-    def "generates the charts interface when a chart is packaged"() {
+    def "generates the charts interface for charts bundled into resources"() {
         given:
         writeChart('api')
         writeChart('webProxy')
@@ -68,19 +68,22 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
-                charts { api { lint = false }; webProxy { lint = false } }
+                generateReferences = true
+                charts {
+                    api      { lint = false; importResourcesTask() }
+                    webProxy { lint = false; importResourcesTask() }
+                }
             }
         """
 
         when:
-        def result = runner('packageApiChart').build()
+        def result = runner('generateChartReferences').build()
 
-        then: 'packaging a chart triggers generation'
+        then: 'the charts were packaged (wired) and the interface was generated'
         result.task(':packageApiChart').outcome == SUCCESS
         result.task(':generateChartReferences').outcome == SUCCESS
 
-        and: 'the interface exposes each chart jar resource path'
+        and: 'the interface exposes each bundled chart jar resource path'
         def generated = new File(dir,
                 'build/generated/sources/helmChartRefs/java/main/com/example/FixtureCharts.java')
         generated.exists()
@@ -99,8 +102,7 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
-                charts { api { lint = false } }
+                charts { api { lint = false; importResourcesTask() } }
             }
         """
 
@@ -109,12 +111,37 @@ exit 0
 
         then:
         result.task(':packageApiChart').outcome == SUCCESS
+        result.task(':importApiChartResources').outcome == SUCCESS
         result.task(':jar').outcome == SUCCESS
 
         and: 'the jar carries the chart at the resource path the interface points to'
         def jar = new File(dir, 'build/libs/fixture.jar')
         jar.exists()
         new ZipFile(jar).withCloseable { it.getEntry('charts/api.tgz') != null }
+    }
+
+    def "a bundled chart needs no interface unless generateReferences is enabled"() {
+        given:
+        writeChart('api')
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.helm' }
+            group = 'com.example'
+            helm {
+                executable = '${fakeBin.absolutePath}'
+                charts { api { lint = false; importResourcesTask() } }
+            }
+        """
+
+        when:
+        def result = runner('jar').build()
+
+        then: 'the chart is bundled but no references task or interface exists'
+        result.task(':importApiChartResources').outcome == SUCCESS
+        result.task(':generateChartReferences') == null
+        !new File(dir, 'build/generated/sources/helmChartRefs').exists()
+        new ZipFile(new File(dir, 'build/libs/fixture.jar')).withCloseable {
+            it.getEntry('charts/api.tgz') != null
+        }
     }
 
     def "the generated interface is compiled with the project's main sources"() {
@@ -125,8 +152,8 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
-                charts { api { lint = false } }
+                generateReferences = true
+                charts { api { lint = false; importResourcesTask() } }
             }
         """
         def src = new File(dir, 'src/main/java/com/example/Consumer.java')
@@ -146,6 +173,27 @@ exit 0
         result.task(':compileJava').outcome == SUCCESS
     }
 
+    def "a chart can target another source set's resources"() {
+        given:
+        writeChart('api')
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.helm' }
+            group = 'com.example'
+            helm {
+                executable = '${fakeBin.absolutePath}'
+                charts { api { lint = false; importResourcesTask('test') } }
+            }
+        """
+
+        when:
+        def result = runner('processTestResources').build()
+
+        then: 'the chart is staged under the test source set resources at charts/'
+        result.task(':importApiTestChartResources').outcome == SUCCESS
+        new File(dir, 'build/generated/resources/helmCharts/api/test/charts/api.tgz').exists()
+        new File(dir, 'build/resources/test/charts/api.tgz').exists()
+    }
+
     def "eclipseClasspath packages the charts and generates the interface"() {
         given:
         writeChart('api')
@@ -154,8 +202,8 @@ exit 0
             group = 'com.example'
             helm {
                 executable = '${fakeBin.absolutePath}'
-                generateJavaRefs = true
-                charts { api { lint = false } }
+                generateReferences = true
+                charts { api { lint = false; importResourcesTask() } }
             }
         """
 
@@ -165,36 +213,15 @@ exit 0
         then:
         result.task(':packageApiChart').outcome == SUCCESS
         result.task(':generateChartReferences').outcome == SUCCESS
-        result.task(':stageChartResources').outcome == SUCCESS
+        result.task(':importApiChartResources').outcome == SUCCESS
         result.task(':eclipseClasspath').outcome == SUCCESS
 
         and: 'the generated source folder and the staged chart resource folder are both on the classpath'
         new File(dir,
                 'build/generated/sources/helmChartRefs/java/main/com/example/FixtureCharts.java').exists()
-        new File(dir, 'build/generated/resources/helmCharts/main/charts/api.tgz').exists()
+        new File(dir, 'build/generated/resources/helmCharts/api/main/charts/api.tgz').exists()
         def classpath = new File(dir, '.classpath').text
         classpath.contains('build/generated/sources/helmChartRefs/java/main')
-        classpath.contains('build/generated/resources/helmCharts/main')
-    }
-
-    def "no interface is generated unless generateJavaRefs is enabled"() {
-        given:
-        writeChart('api')
-        buildFile << """
-            plugins { id 'java'; id 'io.github.nhwalker.helm' }
-            group = 'com.example'
-            helm {
-                executable = '${fakeBin.absolutePath}'
-                charts { api { lint = false } }
-            }
-        """
-
-        when:
-        def result = runner('packageApiChart').build()
-
-        then:
-        result.task(':packageApiChart').outcome == SUCCESS
-        result.task(':generateChartReferences') == null
-        !new File(dir, 'build/generated/sources/helmChartRefs').exists()
+        classpath.contains('build/generated/resources/helmCharts/api/main')
     }
 }

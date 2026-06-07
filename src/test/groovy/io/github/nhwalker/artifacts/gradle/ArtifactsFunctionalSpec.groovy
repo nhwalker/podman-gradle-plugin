@@ -4,6 +4,8 @@ import org.gradle.testkit.runner.GradleRunner
 import spock.lang.Specification
 import spock.lang.TempDir
 
+import java.util.zip.ZipFile
+
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
@@ -463,6 +465,60 @@ class ArtifactsFunctionalSpec extends Specification {
         result.task(':consumer:importTheReportTestResources').outcome == SUCCESS
         new File(dir, 'consumer/build/generated/resources/genericArtifacts/theReport/test/reports/report.txt').text == 'test-report'
         new File(dir, 'consumer/build/resources/test/reports/report.txt').text == 'test-report'
+    }
+
+    def "produce importResourcesTask bundles the produced artifact into the jar's main resources"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='prod'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def reportFile = layout.buildDirectory.file('report.txt')
+            def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
+            genericArtifacts {
+                produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask() } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'jar').build()
+
+        then: 'the producing task ran (wired) and the produced file is bundled in the jar'
+        result.task(':makeReport').outcome == SUCCESS
+        result.task(':importReportResources').outcome == SUCCESS
+        result.task(':jar').outcome == SUCCESS
+        new File(dir, 'build/resources/main/report.txt').text == 'produced'
+        new ZipFile(new File(dir, 'build/libs/prod.jar')).withCloseable { it.getEntry('report.txt') != null }
+    }
+
+    def "generateReferences exposes the bundled produced artifact's resource path"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def reportFile = layout.buildDirectory.file('report.txt')
+            def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
+            genericArtifacts {
+                generateReferences = true
+                referencesPackage = 'com.example'
+                produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask { into 'reports' } } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'the bundle ran first and the interface exposes the bundled resource path'
+        result.task(':importReportResources').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        def generated = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java')
+        generated.exists()
+        def text = generated.text
+        text.contains('package com.example;')
+        text.contains('public interface FixtureArtifacts')
+        text.contains('public static final String REPORT = "reports/report.txt";')
     }
 
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {

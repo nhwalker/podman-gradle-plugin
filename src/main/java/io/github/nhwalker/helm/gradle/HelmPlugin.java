@@ -1,26 +1,29 @@
 package io.github.nhwalker.helm.gradle;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.inject.Inject;
 
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.Task;
 import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.provider.Provider;
-import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.SourceSet;
-import org.gradle.api.tasks.SourceSetContainer;
+import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 
+import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
+import io.github.nhwalker.artifacts.gradle.tasks.GenerateReferencesTask;
 import io.github.nhwalker.helm.gradle.dependency.HelmDependencies;
 import io.github.nhwalker.helm.gradle.dsl.HelmChart;
 import io.github.nhwalker.helm.gradle.tasks.AbstractHelmTask;
-import io.github.nhwalker.helm.gradle.tasks.GenerateChartReferencesTask;
 import io.github.nhwalker.helm.gradle.tasks.HelmLintTask;
 import io.github.nhwalker.helm.gradle.tasks.HelmPackageTask;
 import io.github.nhwalker.helm.gradle.tasks.HelmStageTask;
@@ -30,6 +33,11 @@ import io.github.nhwalker.helm.gradle.tasks.HelmStageTask;
  * to every helm task, and turns each declared chart into stage/package/lint tasks
  * plus the consumable configuration and software-component variant used to share
  * packaged charts as dependencies between projects.
+ *
+ * <p>Charts opt into being bundled into the project's jar resources with
+ * {@link HelmChart#importResourcesTask()} (mirroring the generic artifacts DSL); enabling
+ * {@code generateReferences} additionally generates a {@code <ProjectName>Charts} Java interface
+ * exposing the bundled charts' resource paths.
  *
  * <p>Apply with:
  * <pre>
@@ -48,10 +56,7 @@ public class HelmPlugin implements Plugin<Project> {
     public static final String COMPONENT_NAME = "helm";
 
     /** The task that generates the {@code <ProjectName>Charts} Java interface. */
-    public static final String GENERATE_JAVA_REFS_TASK = "generateChartReferences";
-
-    /** The task that stages packaged charts as jar resources under {@code charts/}. */
-    public static final String STAGE_JAVA_RESOURCES_TASK = "stageChartResources";
+    public static final String GENERATE_REFERENCES_TASK = "generateChartReferences";
 
     private final SoftwareComponentFactory softwareComponentFactory;
 
@@ -65,8 +70,8 @@ public class HelmPlugin implements Plugin<Project> {
         HelmExtension extension = project.getExtensions()
                 .create(EXTENSION_NAME, HelmExtension.class);
         extension.getExecutable().convention("helm");
-        extension.getGenerateJavaRefs().convention(false);
-        extension.getJavaRefsPackage().convention(
+        extension.getGenerateReferences().convention(false);
+        extension.getReferencesPackage().convention(
                 project.provider(() -> String.valueOf(project.getGroup())));
 
         project.getTasks().withType(AbstractHelmTask.class).configureEach(task -> {
@@ -85,67 +90,37 @@ public class HelmPlugin implements Plugin<Project> {
         // Materialize each chart's tasks/configs once the DSL is fully evaluated, so
         // structural decisions (e.g. whether a lint task exists) see final values.
         project.afterEvaluate(p -> {
-            List<TaskProvider<HelmPackageTask>> packageTasks = new ArrayList<>();
-            extension.getCharts().forEach(chart -> packageTasks.add(registerChart(p, chart, component)));
-            // When a Java plugin is applied and the user opted in, bundle the packaged
-            // charts into the jar and expose their resource paths to Java code through a
-            // generated interface, refreshed on each package.
-            if (extension.getGenerateJavaRefs().get() && p.getPluginManager().hasPlugin("java")) {
-                registerJavaRefs(p, extension, packageTasks);
+            extension.getCharts().forEach(chart -> registerChart(p, chart, component));
+            // When opted in and a Java plugin is applied, expose the resource paths of the charts
+            // that bundled themselves into resources through a generated interface.
+            if (extension.getGenerateReferences().get() && p.getPluginManager().hasPlugin("java")) {
+                registerReferences(p, extension);
             }
         });
     }
 
-    private void registerJavaRefs(Project project, HelmExtension extension,
-            List<TaskProvider<HelmPackageTask>> packageTasks) {
-        var generateTask = project.getTasks().register(
-                GENERATE_JAVA_REFS_TASK, GenerateChartReferencesTask.class, t -> {
-                    t.setGroup(TASK_GROUP);
-                    t.setDescription("Generates the "
-                            + GenerateChartReferencesTask.interfaceName(project.getName())
-                            + " interface of packaged chart resource paths.");
-                    t.getProjectName().convention(project.getName());
-                    t.getPackageName().convention(extension.getJavaRefsPackage());
-                    extension.getCharts().forEach(chart ->
-                            t.getCharts().put(chart.getName(), HelmChart.jarResourcePath(chart.getName())));
-                    t.getOutputDirectory().convention(project.getLayout().getBuildDirectory()
-                            .dir("generated/sources/helmChartRefs/java/main"));
-                });
-
-        // Compile the generated interface as part of the project's main sources.
-        SourceSet main = project.getExtensions().getByType(SourceSetContainer.class)
-                .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
-        main.getJava().srcDir(generateTask.flatMap(GenerateChartReferencesTask::getOutputDirectory));
-
-        // Stage each packaged chart into a generated resource root laid out as
-        // charts/<chart>.tgz, then register that root as a main resource directory.
-        // This bundles the charts in the jar at the resource paths the interface
-        // exposes *and* surfaces them as a resource folder on the eclipse classpath
-        // (so they are available when running inside the IDE), unlike a plain
-        // processResources copy which only feeds Gradle's own resource output.
-        Provider<Directory> resourceRoot = project.getLayout().getBuildDirectory()
-                .dir("generated/resources/helmCharts/main");
-        var stageResources = project.getTasks().register(STAGE_JAVA_RESOURCES_TASK, Sync.class, t -> {
-            t.setGroup(TASK_GROUP);
-            t.setDescription("Stages packaged charts as jar resources under charts/.");
-            t.into(resourceRoot);
-            packageTasks.forEach(pkg -> t.from(pkg.flatMap(HelmPackageTask::getPackagedChart),
-                    spec -> spec.into("charts")));
+    private void registerReferences(Project project, HelmExtension extension) {
+        Map<String, Provider<String>> constants = new LinkedHashMap<>();
+        List<TaskProvider<? extends Task>> bundles = new ArrayList<>();
+        extension.getCharts().forEach(chart -> {
+            TaskProvider<Sync> bundle = chart.getResourceBundle();
+            if (bundle != null) {
+                // Deterministic: a bundled chart always lands at charts/<chart>.tgz.
+                constants.put(chart.getName(),
+                        project.provider(() -> HelmChart.jarResourcePath(chart.getName())));
+                bundles.add(bundle);
+            }
         });
-        main.getResources().srcDir(stageResources.map(t -> t.getDestinationDir()));
-
-        // (Re)generate the interface whenever a chart is packaged.
-        packageTasks.forEach(pkg -> pkg.configure(t -> t.finalizedBy(generateTask)));
-
-        // With the eclipse plugin, regenerating the classpath packages the charts (which
-        // refreshes the refs and stages the resources); depending on the generator and
-        // the staging task guarantees the generated source and resource folders exist
-        // before the .classpath that references them is written.
-        project.getPluginManager().withPlugin("eclipse", applied ->
-                project.getTasks().named("eclipseClasspath").configure(t -> {
-                    t.dependsOn(generateTask, stageResources);
-                    packageTasks.forEach(t::dependsOn);
-                }));
+        if (constants.isEmpty()) {
+            return;
+        }
+        String className = GenerateReferencesTask.pascalCase(project.getName()) + "Charts";
+        Provider<Directory> output = project.getLayout().getBuildDirectory()
+                .dir("generated/sources/helmChartRefs/java/main");
+        ResourceImports.generateReferences(project, TASK_GROUP, GENERATE_REFERENCES_TASK,
+                className, extension.getReferencesPackage(),
+                "Generated by the io.github.nhwalker.helm plugin. Do not edit.",
+                constants, output, SourceSet.MAIN_SOURCE_SET_NAME, bundles);
     }
 
     private TaskProvider<HelmPackageTask> registerChart(Project project, HelmChart chart,
