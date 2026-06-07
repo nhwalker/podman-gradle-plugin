@@ -370,6 +370,101 @@ class ArtifactsFunctionalSpec extends Specification {
         new File(dir, 'consumer/build/out').listFiles().any { it.name.endsWith('.zip') }
     }
 
+    def "importResourcesTask bundles the resolved artifact into the jar's main resources"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='res'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            ${producerBody('imported-report')}
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theReport { from project(':producer'); classifier = 'report'; importResourcesTask() } }
+            }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:jar').build()
+
+        then: 'the producing task ran (wired) and the file was staged into the main resources'
+        result.task(':producer:makeReport').outcome == SUCCESS
+        result.task(':consumer:importTheReportResources').outcome == SUCCESS
+        new File(dir, 'consumer/build/generated/resources/genericArtifacts/theReport/main/report.txt').text == 'imported-report'
+
+        and: 'processResources picked the folder up so it lands in the jar resources'
+        new File(dir, 'consumer/build/resources/main/report.txt').text == 'imported-report'
+    }
+
+    def "importUnpackedResourcesTask extracts the archive into resources, configuration-cache compatible"() {
+        given: 'a producer that publishes a zip containing hello.txt as a generic artifact'
+        new File(dir, 'settings.gradle') << "rootProject.name='resunpack'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'; version = '1.0'
+            def payload = layout.buildDirectory.file('payload/hello.txt')
+            tasks.register('makePayload') { outputs.file(payload); doLast { payload.get().asFile.text = 'inside-zip' } }
+            tasks.register('makeZip', Zip) {
+                dependsOn 'makePayload'
+                archiveFileName = 'bundle.zip'
+                destinationDirectory = layout.buildDirectory.dir('dist')
+                from payload
+            }
+            genericArtifacts { produce { bundle { classifier = 'bundle'; artifact tasks.makeZip.archiveFile } } }
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theBundle { from project(':producer'); classifier = 'bundle'; importUnpackedResourcesTask() } }
+            }
+        """
+
+        when:
+        def first = runner(dir, ':consumer:jar', '--configuration-cache').build()
+
+        then: 'the producing zip task ran and the archive contents landed in the main resources'
+        first.task(':producer:makeZip').outcome == SUCCESS
+        first.task(':consumer:importTheBundleUnpackedResources').outcome == SUCCESS
+        new File(dir, 'consumer/build/resources/main/hello.txt').text == 'inside-zip'
+
+        when:
+        def second = runner(dir, ':consumer:jar', '--configuration-cache').build()
+
+        then:
+        second.output.contains('Reusing configuration cache.')
+        new File(dir, 'consumer/build/resources/main/hello.txt').text == 'inside-zip'
+    }
+
+    def "importResourcesTask targets a chosen source set and a subdirectory"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='restest'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            ${producerBody('test-report')}
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theReport { from project(':producer'); classifier = 'report'; importResourcesTask('test') { into 'reports' } } }
+            }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:processTestResources').build()
+
+        then: 'the file was staged under the test source set resources at the requested subdirectory'
+        result.task(':producer:makeReport').outcome == SUCCESS
+        result.task(':consumer:importTheReportTestResources').outcome == SUCCESS
+        new File(dir, 'consumer/build/generated/resources/genericArtifacts/theReport/test/reports/report.txt').text == 'test-report'
+        new File(dir, 'consumer/build/resources/test/reports/report.txt').text == 'test-report'
+    }
+
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {
         given: 'a standalone producer build addressed by group:name'
         def cp = pluginClasspathFilesLiteral()
