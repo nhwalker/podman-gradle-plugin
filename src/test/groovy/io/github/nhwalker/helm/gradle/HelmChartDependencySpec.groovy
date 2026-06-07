@@ -1,5 +1,6 @@
 package io.github.nhwalker.helm.gradle
 
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes
 import io.github.nhwalker.helm.gradle.dependency.HelmAttributes
 import org.gradle.api.component.AdhocComponentWithVariants
 import org.gradle.api.internal.project.ProjectInternal
@@ -8,7 +9,9 @@ import spock.lang.Specification
 
 /**
  * Unit tests for the variant-aware chart dependency wiring: attribute schema,
- * per-chart tasks/configurations, and the publishable software component. Uses
+ * per-chart tasks/configurations, and the publishable software component. Charts are
+ * modeled as generic artifacts, so the variants carry the generic
+ * {@code ecosystem}/{@code classifier} attributes plus the helm free attributes. Uses
  * ProjectBuilder and forces the configuration lifecycle with evaluate() so the
  * plugin's afterEvaluate reaction runs.
  */
@@ -26,11 +29,14 @@ class HelmChartDependencySpec extends Specification {
         ((ProjectInternal) project).evaluate()
     }
 
-    def "registers the helm attributes in the schema"() {
+    def "registers the generic artifact attributes and the helm free-attribute keys"() {
         expect:
-        project.dependencies.attributesSchema.hasAttribute(HelmAttributes.ECOSYSTEM)
-        project.dependencies.attributesSchema.hasAttribute(HelmAttributes.CHART_NAME)
-        project.dependencies.attributesSchema.hasAttribute(HelmAttributes.CHART_TYPE)
+        project.dependencies.attributesSchema.hasAttribute(ArtifactsAttributes.ECOSYSTEM)
+        project.dependencies.attributesSchema.hasAttribute(ArtifactsAttributes.CLASSIFIER)
+        project.dependencies.attributesSchema
+                .hasAttribute(ArtifactsAttributes.freeAttribute(HelmAttributes.CHART_NAME_KEY))
+        project.dependencies.attributesSchema
+                .hasAttribute(ArtifactsAttributes.freeAttribute(HelmAttributes.CHART_TYPE_KEY))
     }
 
     def "a chart creates stage + package + lint tasks and a package-elements consumable"() {
@@ -48,9 +54,16 @@ class HelmChartDependencySpec extends Specification {
         and:
         def cfg = project.configurations.getByName('apiPackageElements')
         cfg.canBeConsumed && !cfg.canBeResolved && !cfg.canBeDeclared
-        cfg.attributes.getAttribute(HelmAttributes.ECOSYSTEM) == HelmAttributes.ECOSYSTEM_VALUE
-        cfg.attributes.getAttribute(HelmAttributes.CHART_NAME) == 'api'
-        cfg.attributes.getAttribute(HelmAttributes.CHART_TYPE) == HelmAttributes.CHART_TYPE_PACKAGE
+        cfg.attributes.getAttribute(ArtifactsAttributes.ECOSYSTEM) == ArtifactsAttributes.ECOSYSTEM_VALUE
+        cfg.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == 'api'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(HelmAttributes.CHART_NAME_KEY)) == 'api'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(HelmAttributes.CHART_TYPE_KEY)) ==
+                HelmAttributes.CHART_TYPE_PACKAGE
+
+        and: 'the outgoing artifact is the packaged chart (tgz) classified <chart>'
+        def artifact = cfg.outgoing.artifacts.first()
+        artifact.type == 'tgz'
+        artifact.classifier == 'api'
 
         and: 'the project component exists and is adhoc'
         project.components.findByName('helm') instanceof AdhocComponentWithVariants
@@ -86,10 +99,12 @@ class HelmChartDependencySpec extends Specification {
         !bucket.canBeConsumed && !bucket.canBeResolved && bucket.canBeDeclared
         bucket.dependencies.find { it.group == 'com.example' && it.name == 'base' } != null
 
-        and:
+        and: 'the request pins chartType=package but carries no ecosystem fence'
         def resolvable = project.configurations.getByName('umbrellaRefsSubchart0')
         resolvable.canBeResolved && !resolvable.canBeConsumed
-        resolvable.attributes.getAttribute(HelmAttributes.CHART_TYPE) == HelmAttributes.CHART_TYPE_PACKAGE
+        resolvable.attributes.getAttribute(ArtifactsAttributes.freeAttribute(HelmAttributes.CHART_TYPE_KEY)) ==
+                HelmAttributes.CHART_TYPE_PACKAGE
+        resolvable.attributes.getAttribute(ArtifactsAttributes.ECOSYSTEM) == null
     }
 
     def "multiple charts coexist with distinct chartName attributes"() {
@@ -101,9 +116,9 @@ class HelmChartDependencySpec extends Specification {
 
         then:
         project.configurations.getByName('fooPackageElements')
-                .attributes.getAttribute(HelmAttributes.CHART_NAME) == 'foo'
+                .attributes.getAttribute(ArtifactsAttributes.freeAttribute(HelmAttributes.CHART_NAME_KEY)) == 'foo'
         project.configurations.getByName('barPackageElements')
-                .attributes.getAttribute(HelmAttributes.CHART_NAME) == 'bar'
+                .attributes.getAttribute(ArtifactsAttributes.freeAttribute(HelmAttributes.CHART_NAME_KEY)) == 'bar'
 
         and: 'identity stays at the project coordinate (no custom outgoing capability)'
         project.configurations.getByName('fooPackageElements').outgoing.capabilities.isEmpty()

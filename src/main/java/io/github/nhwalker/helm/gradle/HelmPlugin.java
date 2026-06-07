@@ -19,9 +19,11 @@ import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 import io.github.nhwalker.artifacts.gradle.tasks.GenerateReferencesTask;
-import io.github.nhwalker.helm.gradle.dependency.HelmDependencies;
+import io.github.nhwalker.helm.gradle.dependency.HelmAttributes;
 import io.github.nhwalker.helm.gradle.dsl.HelmChart;
 import io.github.nhwalker.helm.gradle.tasks.AbstractHelmTask;
 import io.github.nhwalker.helm.gradle.tasks.HelmLintTask;
@@ -80,7 +82,11 @@ public class HelmPlugin implements Plugin<Project> {
             task.getGlobalOptions().convention(extension.getGlobalOptions());
         });
 
-        HelmDependencies.registerSchema(project);
+        // Charts are modeled as generic artifacts: register the core artifact schema
+        // and the helm free-attribute keys.
+        ArtifactsDependencies.registerSchema(project);
+        ArtifactsDependencies.registerAttributeKey(project, HelmAttributes.CHART_NAME_KEY);
+        ArtifactsDependencies.registerAttributeKey(project, HelmAttributes.CHART_TYPE_KEY);
 
         // One component aggregates every chart's variants (one module/coordinate),
         // the same way the java component carries the main + sources/javadoc jars.
@@ -158,9 +164,18 @@ public class HelmPlugin implements Plugin<Project> {
             });
         }
 
-        var packageElements = HelmDependencies.packageElements(project,
+        // Package variant: classifier <chart>, free attrs chartName/chartType=package,
+        // artifact type tgz with the package task as its build dependency.
+        var packageElements = ArtifactsDependencies.elements(project,
                 HelmChart.packageElementsName(name), name,
-                packageTask.flatMap(HelmPackageTask::getPackagedChart), packageTask);
+                Map.of(HelmAttributes.CHART_NAME_KEY, name,
+                        HelmAttributes.CHART_TYPE_KEY, HelmAttributes.CHART_TYPE_PACKAGE),
+                List.of(new ArtifactSpec(
+                        packageTask.flatMap(HelmPackageTask::getPackagedChart),
+                        artifact -> {
+                            artifact.setType("tgz");
+                            artifact.builtBy(packageTask);
+                        })));
         component.addVariantsFromConfiguration(packageElements.get(), details -> { });
         return packageTask;
     }

@@ -783,13 +783,14 @@ image:
 
 ### Sharing charts as dependencies
 
-Charts are modeled with the same "one module, several attribute-selected variants"
-approach as container images: module identity stays at the project's `group:name`
-coordinate, the `io.github.nhwalker.helm.chartName` attribute selects which chart,
-and `io.github.nhwalker.helm.ecosystem` fences helm variants off from the JVM
-ecosystem. A `from(...)` dependency resolves another chart's packaged `.tgz` and
-stages it into this chart's `charts/` subchart directory before packaging — Gradle
-orders the producer first automatically.
+Charts are published and consumed as **generic artifacts**, the same way as container
+images — they reuse the `io.github.nhwalker.artifacts` plugin's model. Module identity
+stays at the project's `group:name` coordinate, the variant's Maven classifier is the
+chart name, a required `ecosystem=generic-artifact` marker fences helm variants off from
+the JVM ecosystem, and the `io.github.nhwalker.helm.chartName`/`chartType` free
+attributes select which chart and which form a request resolves. A `from(...)` dependency
+resolves another chart's packaged `.tgz` and stages it into this chart's `charts/`
+subchart directory before packaging — Gradle orders the producer first automatically.
 
 ```groovy
 helm {
