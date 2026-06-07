@@ -697,12 +697,13 @@ class ArtifactsFunctionalSpec extends Specification {
         def src = new File(dir, 'src/main/java/com/example/Check.java')
         src.parentFile.mkdirs()
         // The static method ref captures no Project; a runtime equality check proves the text block
-        // reproduces the document exactly (leading indentation kept, single trailing newline dropped).
+        // reproduces the document exactly: leading indentation kept and the trailing newline of a
+        // multi-line document preserved.
         src << '''
             package com.example;
             public class Check {
                 public static void main(String[] args) {
-                    if (!FixtureReferences.MOTD.equals("  line1\\nline2")) {
+                    if (!FixtureReferences.MOTD.equals("  line1\\nline2\\n")) {
                         throw new AssertionError("unexpected value: [" + FixtureReferences.MOTD + "]");
                     }
                 }

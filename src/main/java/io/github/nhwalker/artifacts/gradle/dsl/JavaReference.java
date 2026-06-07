@@ -87,8 +87,9 @@ public abstract class JavaReference implements Named {
      * {@code FileCollection} accepts — a {@code Provider<RegularFile>}, a {@code File}, a task
      * output, or another element's resolved {@code files} (e.g. {@code consume.<name>.files}) — and
      * its build dependencies are carried, so the producing/resolving task runs first. The collection
-     * must resolve to exactly one file. A single trailing line terminator is dropped (text files
-     * conventionally end with one); any remaining line breaks are preserved and rendered as a Java
+     * must resolve to exactly one file. A single-line file has its trailing line terminator dropped
+     * (text files conventionally end with one, and an image coordinate wants no trailing newline); a
+     * multi-line document is preserved verbatim, trailing newline and all, and rendered as a Java
      * text block in the generated source.
      */
     public void fromFile(Object notation) {
@@ -115,13 +116,18 @@ public abstract class JavaReference implements Named {
         File file = regularFiles.get(0);
         try {
             String text = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+            // Drop a single trailing line terminator only for single-line files (text files
+            // conventionally end with one, and an image coordinate wants no trailing newline). A
+            // multi-line document keeps its trailing newline so its contents are preserved verbatim.
+            String withoutTerminator;
             if (text.endsWith("\r\n")) {
-                return text.substring(0, text.length() - 2);
+                withoutTerminator = text.substring(0, text.length() - 2);
+            } else if (text.endsWith("\n")) {
+                withoutTerminator = text.substring(0, text.length() - 1);
+            } else {
+                return text;
             }
-            if (text.endsWith("\n")) {
-                return text.substring(0, text.length() - 1);
-            }
-            return text;
+            return withoutTerminator.indexOf('\n') < 0 ? withoutTerminator : text;
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read reference file " + file, e);
         }

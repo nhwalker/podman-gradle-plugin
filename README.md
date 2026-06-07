@@ -1060,8 +1060,9 @@ Instead of a literal `value`, a reference can capture the **contents of a text f
 `fromFile(<notation>)`. `notation` is anything a `FileCollection` accepts — a `Provider<RegularFile>`,
 a `File`, a task output, or another element's resolved `files` — and its build dependencies are
 carried, so the producing/resolving task runs first. The file is read lazily when the interface is
-generated; a single trailing newline is dropped, and any remaining line breaks are preserved and
-emitted as a **Java text block** (a multiline string), so multi-line documents stay readable.
+generated. A single-line file has its trailing newline dropped (so an image coordinate is clean); a
+multi-line document is preserved verbatim — trailing newline and all — and emitted as a **Java text
+block** (a multiline string), so multi-line documents stay readable.
 
 The motivating case is capturing a built image's coordinate from another project. The container
 plugin publishes each image's reference as a text artifact (classifier `<image>-reference`); resolve
