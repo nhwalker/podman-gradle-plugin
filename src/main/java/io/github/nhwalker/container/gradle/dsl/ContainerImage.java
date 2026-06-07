@@ -1,6 +1,8 @@
 package io.github.nhwalker.container.gradle.dsl;
 
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 import javax.inject.Inject;
 
@@ -15,6 +17,7 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.SourceSet;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
@@ -49,6 +52,8 @@ public abstract class ContainerImage implements Named {
     private final String name;
     private final Project project;
     private final ObjectFactory objects;
+    // The source sets this image's reference constant is exposed on (insertion-ordered).
+    private final Set<String> javaReferenceSourceSets = new LinkedHashSet<>();
 
     @Inject
     @SuppressWarnings("this-escape")
@@ -159,6 +164,39 @@ public abstract class ContainerImage implements Named {
     /** Alias for {@link #from(String, Object)}. */
     public void baseImage(String buildArgName, Object dependencyNotation) {
         from(buildArgName, dependencyNotation);
+    }
+
+    // ---- java reference opt-in --------------------------------------------------
+
+    /**
+     * Exposes this image's resolved reference on the {@code main} source set's generated
+     * {@code <ProjectName>Images} interface. Requires the extension's {@code generateReferences}
+     * switch. See {@link #javaReference(String)}.
+     */
+    public void javaReference() {
+        javaReference(SourceSet.MAIN_SOURCE_SET_NAME);
+    }
+
+    /**
+     * Exposes this image's resolved reference (its {@code name:tag}, digest-pinned when
+     * {@code includeDigest} is on) as a constant on the named source set's generated
+     * {@code <ProjectName>Images[<SourceSet>]} interface — the {@code main} set's interface is
+     * unsuffixed, others append the capitalized source-set name. The constant value is read from the
+     * image's reference file, so the interface's source set compiles only after the image is built and
+     * inspected; this scopes the container-engine dependency to that source set (e.g.
+     * {@code javaReference('test')} keeps {@code compileJava}/{@code jar} independent of the engine).
+     * Opt-in, and only realized when the extension's {@code generateReferences} is enabled.
+     */
+    public void javaReference(String sourceSetName) {
+        javaReferenceSourceSets.add(sourceSetName);
+    }
+
+    /**
+     * The source sets this image's reference constant is exposed on (empty unless
+     * {@link #javaReference()} was called). Read by the plugin to build the per-source-set interface.
+     */
+    public Set<String> getJavaReferenceSourceSets() {
+        return javaReferenceSourceSets;
     }
 
     // ---- naming helpers (shared with the plugin reaction) -----------------------

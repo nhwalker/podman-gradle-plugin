@@ -1,5 +1,10 @@
 package io.github.nhwalker.container.gradle;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -10,10 +15,12 @@ import javax.inject.Inject;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.Task;
 import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.ProjectLayout;
+import org.gradle.api.file.RegularFile;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.TaskProvider;
@@ -22,7 +29,6 @@ import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
-import io.github.nhwalker.artifacts.gradle.tasks.GenerateReferencesTask;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 import io.github.nhwalker.container.gradle.tasks.AbstractContainerTask;
@@ -52,11 +58,23 @@ public class ContainerPlugin implements Plugin<Project> {
     /** The name of the software component aggregating this project's image variants. */
     public static final String COMPONENT_NAME = "container";
 
-    /** The task that generates the {@code <ProjectName>Images} Java interface. */
-    public static final String GENERATE_JAVA_REFS_TASK = "generateImageReferences";
+    /** The task that generates the {@code main} source set's {@code <ProjectName>Images} Java interface. */
+    public static final String GENERATE_REFERENCES_TASK = "generateImageReferences";
 
     /** The {@code <Domain>} segment of this plugin's generated interface name. */
     public static final String REFERENCES_DOMAIN = "Images";
+
+    /**
+     * The references task name for a source set: {@link #GENERATE_REFERENCES_TASK} for {@code main},
+     * {@code generate<SourceSet>ImageReferences} otherwise.
+     */
+    public static String generateReferencesTaskName(String sourceSetName) {
+        if (SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName)) {
+            return GENERATE_REFERENCES_TASK;
+        }
+        return "generate" + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1)
+                + "ImageReferences";
+    }
 
     private final SoftwareComponentFactory softwareComponentFactory;
 
@@ -70,8 +88,8 @@ public class ContainerPlugin implements Plugin<Project> {
         ContainerExtension extension = project.getExtensions()
                 .create(EXTENSION_NAME, ContainerExtension.class);
         extension.getExecutable().convention("podman");
-        extension.getGenerateJavaRefs().convention(false);
-        extension.getJavaRefsPackage().convention(
+        extension.getGenerateReferences().convention(false);
+        extension.getReferencesPackage().convention(
                 project.provider(() -> String.valueOf(project.getGroup())));
         extension.getReferencesClassName().convention(project.provider(() ->
                 ResourceImports.defaultReferencesBaseName(project.getName(), REFERENCES_DOMAIN)));
@@ -102,44 +120,76 @@ public class ContainerPlugin implements Plugin<Project> {
         // Materialize each image's tasks/configs once the DSL is fully evaluated, so
         // structural decisions (e.g. whether an archive variant exists) see final values.
         project.afterEvaluate(p -> {
-            List<TaskProvider<ContainerBuildTask>> buildTasks = new ArrayList<>();
-            extension.getImages().forEach(image -> buildTasks.add(registerImage(p, image, component)));
-            // When a Java plugin is applied and the user opted in, expose every image's
-            // coordinate to Java code through a generated interface, refreshed on each build.
-            if (extension.getGenerateJavaRefs().get() && p.getPluginManager().hasPlugin("java")) {
-                registerJavaRefs(p, extension, buildTasks);
+            Map<String, TaskProvider<ContainerImageReferenceTask>> referenceTasks = new LinkedHashMap<>();
+            extension.getImages().forEach(image ->
+                    referenceTasks.put(image.getName(), registerImage(p, image, component)));
+            // When a Java plugin is applied and the user opted in, expose each opted-in image's
+            // reference to Java code through a generated interface (per target source set).
+            if (extension.getGenerateReferences().get() && p.getPluginManager().hasPlugin("java")) {
+                registerReferences(p, extension, referenceTasks);
             }
         });
     }
 
-    private void registerJavaRefs(Project project, ContainerExtension extension,
-            List<TaskProvider<ContainerBuildTask>> buildTasks) {
-        // Each image contributes one constant: its primary tag — an arbitrary String value, not a
-        // bundled resource path. Generate the container plugin's own <ProjectName>Images interface
-        // through the shared generator the helm and generic-artifacts plugins also use.
-        Map<String, Provider<String>> constants = new LinkedHashMap<>();
-        extension.getImages().forEach(image ->
-                constants.put(image.getName(), image.getTags().map(tags -> tags.get(0))));
-        if (constants.isEmpty()) {
-            return;
-        }
-        // Image references are always main, so the configured class name is used verbatim.
-        String className = ResourceImports.withSourceSetSuffix(
-                extension.getReferencesClassName().get(), SourceSet.MAIN_SOURCE_SET_NAME);
-        Provider<Directory> output = project.getLayout().getBuildDirectory()
-                .dir("generated/sources/containerImageRefs/java/main");
-        // Depending on the build tasks (via the helper) makes regenerating the interface — or the
-        // eclipse classpath — build the images first, so the refs are present for the IDE.
-        TaskProvider<GenerateReferencesTask> generate = ResourceImports.generateReferences(project,
-                TASK_GROUP, GENERATE_JAVA_REFS_TASK, className, extension.getJavaRefsPackage(),
-                "Generated by the io.github.nhwalker.container plugin. Do not edit.",
-                constants, output, SourceSet.MAIN_SOURCE_SET_NAME, buildTasks);
-
-        // Building any image also refreshes the interface, so the refs track the just-built tags.
-        buildTasks.forEach(buildTask -> buildTask.configure(t -> t.finalizedBy(generate)));
+    private void registerReferences(Project project, ContainerExtension extension,
+            Map<String, TaskProvider<ContainerImageReferenceTask>> referenceTasks) {
+        // Group each opted-in image's constant under the source set(s) it targets, so each source set
+        // gets its own <ProjectName>Images[<SourceSet>] interface. The value is the image's resolved
+        // reference (digest-pinned when includeDigest is on), read from its reference file — so the
+        // interface's source set is what builds and inspects the image, scoping that dependency.
+        Map<String, Map<String, Provider<String>>> constantsBySourceSet = new LinkedHashMap<>();
+        Map<String, List<TaskProvider<? extends Task>>> regenerateBySourceSet = new LinkedHashMap<>();
+        extension.getImages().forEach(image -> {
+            if (image.getJavaReferenceSourceSets().isEmpty()) {
+                return;
+            }
+            TaskProvider<ContainerImageReferenceTask> referenceTask = referenceTasks.get(image.getName());
+            Provider<String> value = referenceTask
+                    .flatMap(ContainerImageReferenceTask::getReferenceFile)
+                    .map(ContainerPlugin::readReference);
+            image.getJavaReferenceSourceSets().forEach(sourceSet -> {
+                constantsBySourceSet.computeIfAbsent(sourceSet, k -> new LinkedHashMap<>())
+                        .put(image.getName(), value);
+                regenerateBySourceSet.computeIfAbsent(sourceSet, k -> new ArrayList<>()).add(referenceTask);
+            });
+        });
+        constantsBySourceSet.forEach((sourceSet, constants) -> {
+            String className = ResourceImports.withSourceSetSuffix(
+                    extension.getReferencesClassName().get(), sourceSet);
+            Provider<Directory> output = project.getLayout().getBuildDirectory()
+                    .dir("generated/sources/containerImageRefs/java/" + sourceSet);
+            // Depending on the reference tasks (via the helper) makes generating the interface — or the
+            // eclipse classpath — build and inspect the images first, so the refs reflect the current
+            // image content and are present for the IDE.
+            ResourceImports.generateReferences(project, TASK_GROUP, generateReferencesTaskName(sourceSet),
+                    className, extension.getReferencesPackage(),
+                    "Generated by the io.github.nhwalker.container plugin. Do not edit.",
+                    constants, output, sourceSet, regenerateBySourceSet.get(sourceSet));
+        });
     }
 
-    private TaskProvider<ContainerBuildTask> registerImage(Project project, ContainerImage image,
+    /**
+     * Reads the first non-blank line of an image's reference file (the coordinate, digest-pinned when
+     * available). A {@code static} method so the value provider captures no project state and stays
+     * configuration-cache safe.
+     */
+    private static String readReference(RegularFile file) {
+        Path path = file.getAsFile().toPath();
+        if (!Files.isRegularFile(path)) {
+            return null;
+        }
+        try {
+            return Files.readAllLines(path, StandardCharsets.UTF_8).stream()
+                    .map(String::strip)
+                    .filter(line -> !line.isEmpty())
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read image reference file " + path, e);
+        }
+    }
+
+    private TaskProvider<ContainerImageReferenceTask> registerImage(Project project, ContainerImage image,
             AdhocComponentWithVariants component) {
         String name = image.getName();
         if (image.getTags().getOrElse(java.util.List.of()).isEmpty()) {
@@ -218,6 +268,6 @@ public class ContainerPlugin implements Plugin<Project> {
                             })));
             component.addVariantsFromConfiguration(archiveElements.get(), details -> { });
         }
-        return buildTask;
+        return referenceTask;
     }
 }
