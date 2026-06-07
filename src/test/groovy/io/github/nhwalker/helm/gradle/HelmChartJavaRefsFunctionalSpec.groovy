@@ -77,15 +77,15 @@ exit 0
         """
 
         when:
-        def result = runner('generateChartReferences').build()
+        def result = runner('generateReferences').build()
 
         then: 'the charts were packaged (wired) and the interface was generated'
         result.task(':packageApiChart').outcome == SUCCESS
-        result.task(':generateChartReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
 
         and: 'the interface exposes each bundled chart jar resource path'
         def generated = new File(dir,
-                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureReferences.java')
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
@@ -137,8 +137,8 @@ exit 0
 
         then: 'the chart is bundled but no references task or interface exists'
         result.task(':importApiChartResources').outcome == SUCCESS
-        result.task(':generateChartReferences') == null
-        !new File(dir, 'build/generated/sources/helmChartRefs').exists()
+        result.task(':generateReferences') == null
+        !new File(dir, 'build/generated/sources/references').exists()
         new ZipFile(new File(dir, 'build/libs/fixture.jar')).withCloseable {
             it.getEntry('charts/api.tgz') != null
         }
@@ -169,7 +169,7 @@ exit 0
         def result = runner('compileJava').build()
 
         then:
-        result.task(':generateChartReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
         result.task(':compileJava').outcome == SUCCESS
     }
 
@@ -212,16 +212,16 @@ exit 0
 
         then:
         result.task(':packageApiChart').outcome == SUCCESS
-        result.task(':generateChartReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
         result.task(':importApiChartResources').outcome == SUCCESS
         result.task(':eclipseClasspath').outcome == SUCCESS
 
         and: 'the generated source folder and the staged chart resource folder are both on the classpath'
         new File(dir,
-                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureReferences.java').exists()
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java').exists()
         new File(dir, 'build/generated/resources/helmCharts/api/main/charts/api.tgz').exists()
         def classpath = new File(dir, '.classpath').text
-        classpath.contains('build/generated/sources/helmChartRefs/java/main')
+        classpath.contains('build/generated/sources/references/java/main')
         classpath.contains('build/generated/resources/helmCharts/api/main')
     }
 }

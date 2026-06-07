@@ -507,13 +507,13 @@ class ArtifactsFunctionalSpec extends Specification {
         """
 
         when:
-        def result = runner(dir, 'generateArtifactReferences').build()
+        def result = runner(dir, 'generateReferences').build()
 
         then: 'the bundle ran first and the interface exposes the bundled resource path'
         result.task(':importReportResources').outcome == SUCCESS
-        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
         def generated = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
@@ -537,12 +537,12 @@ class ArtifactsFunctionalSpec extends Specification {
         """
 
         when:
-        def result = runner(dir, 'generateArtifactReferences').build()
+        def result = runner(dir, 'generateReferences').build()
 
         then: 'each declared reference is a constant carrying its arbitrary value'
-        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
         def generated = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('public interface FixtureReferences')
@@ -566,13 +566,13 @@ class ArtifactsFunctionalSpec extends Specification {
         """
 
         when:
-        def result = runner(dir, 'generateArtifactReferences').build()
+        def result = runner(dir, 'generateReferences').build()
 
         then: 'the bundle was wired and both kinds of constant appear in one interface'
         result.task(':importReportResources').outcome == SUCCESS
-        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
         def text = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java').text
         text.contains('public static final String REPORT = "report.txt";')
         text.contains('public static final String SCHEMA_VERSION = "v3";')
     }
@@ -591,22 +591,22 @@ class ArtifactsFunctionalSpec extends Specification {
         """
 
         when:
-        def result = runner(dir, 'generateArtifactReferences', 'generateTestArtifactReferences').build()
+        def result = runner(dir, 'generateReferences', 'generateTestReferences').build()
 
         then: 'main and test each get their own interface in their own source set'
-        result.task(':generateArtifactReferences').outcome == SUCCESS
-        result.task(':generateTestArtifactReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
+        result.task(':generateTestReferences').outcome == SUCCESS
 
         and: 'main is unsuffixed and carries only the main reference'
         def main = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java').text
         main.contains('public interface FixtureReferences ')
         main.contains('public static final String API_BASE_URL = "https://api.example.com";')
         !main.contains('STUB_URL')
 
         and: 'test is suffixed and carries only the test reference'
         def test = new File(dir,
-                'build/generated/sources/genericArtifactRefs/java/test/com/example/FixtureReferencesTest.java').text
+                'build/generated/sources/references/java/test/com/example/FixtureReferencesTest.java').text
         test.contains('public interface FixtureReferencesTest ')
         test.contains('public static final String STUB_URL = "http://localhost:8080";')
         !test.contains('API_BASE_URL')
@@ -627,8 +627,8 @@ class ArtifactsFunctionalSpec extends Specification {
         def result = runner(dir, 'tasks').build()
 
         then: 'without the switch no generation task is registered'
-        result.task(':generateArtifactReferences') == null
-        !new File(dir, 'build/generated/sources/genericArtifactRefs').exists()
+        result.task(':generateReferences') == null
+        !new File(dir, 'build/generated/sources/references').exists()
     }
 
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {

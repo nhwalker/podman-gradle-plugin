@@ -60,11 +60,11 @@ exit 0
 
         then: 'the build of an image triggers generation'
         result.task(':buildAppImage').outcome == SUCCESS
-        result.task(':generateImageReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
 
         and: 'the interface carries the primary (first) tag of each image'
         def generated = new File(dir,
-                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureReferences.java')
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
@@ -97,7 +97,7 @@ exit 0
         def result = runner('compileJava').build()
 
         then:
-        result.task(':generateImageReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
         result.task(':compileJava').outcome == SUCCESS
     }
 
@@ -118,13 +118,13 @@ exit 0
 
         then: 'regenerating the classpath builds the image and refreshes the refs'
         result.task(':buildAppImage').outcome == SUCCESS
-        result.task(':generateImageReferences').outcome == SUCCESS
+        result.task(':generateReferences').outcome == SUCCESS
         result.task(':eclipseClasspath').outcome == SUCCESS
 
         and: 'the generated source folder is on the eclipse classpath'
         new File(dir,
-                'build/generated/sources/containerImageRefs/java/main/com/example/FixtureReferences.java').exists()
-        new File(dir, '.classpath').text.contains('build/generated/sources/containerImageRefs/java/main')
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java').exists()
+        new File(dir, '.classpath').text.contains('build/generated/sources/references/java/main')
     }
 
     def "no interface is generated unless generateJavaRefs is enabled"() {
@@ -143,7 +143,37 @@ exit 0
 
         then: 'the generation task is never registered'
         result.task(':buildAppImage').outcome == SUCCESS
-        result.task(':generateImageReferences') == null
-        !new File(dir, 'build/generated/sources/containerImageRefs').exists()
+        result.task(':generateReferences') == null
+        !new File(dir, 'build/generated/sources/references').exists()
+    }
+
+    def "container and generic-artifacts contributions merge into one references interface"() {
+        given: 'a project applying both plugins, each opting into references'
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                generateJavaRefs = true
+                images { app { tags = ['example/app:1.0'] } }
+            }
+            genericArtifacts {
+                generateReferences = true
+                references { apiBaseUrl { value = 'https://api.example.com' } }
+            }
+        """
+
+        when: 'the single shared task is requested'
+        def result = runner('generateReferences').build()
+
+        then: 'one interface in one location carries both the image tag and the arbitrary reference'
+        result.task(':generateReferences').outcome == SUCCESS
+        result.task(':buildAppImage').outcome == SUCCESS
+        def generated = new File(dir,
+                'build/generated/sources/references/java/main/com/example/FixtureReferences.java')
+        generated.exists()
+        def text = generated.text
+        text.contains('public static final String APP = "example/app:1.0";')
+        text.contains('public static final String API_BASE_URL = "https://api.example.com";')
     }
 }
