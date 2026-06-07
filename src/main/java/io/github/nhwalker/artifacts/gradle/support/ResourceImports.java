@@ -31,25 +31,29 @@ import io.github.nhwalker.artifacts.gradle.tasks.GenerateReferencesTask;
  */
 public final class ResourceImports {
 
-    /** Task group for the shared references-generation task(s). */
-    public static final String REFERENCES_GROUP = "references";
-
     private ResourceImports() {
     }
 
     /**
-     * The conventional references-interface name for a project + source set: the project name in
-     * PascalCase followed by {@code References}, with the capitalized source-set name appended for
-     * any non-{@code main} source set (e.g. {@code FixtureReferences}, {@code FixtureReferencesTest}).
-     * Shared by the container, helm, and generic-artifacts plugins so every generated interface
-     * follows one naming scheme.
+     * Appends the capitalized source-set name to a base references-interface name for any non-{@code
+     * main} source set, leaving {@code main} unsuffixed — so a base of {@code FixtureCharts} yields
+     * {@code FixtureCharts} for {@code main} and {@code FixtureChartsTest} for {@code test}.
      */
-    public static String referencesClassName(String projectName, String sourceSetName) {
-        String base = GenerateReferencesTask.pascalCase(projectName) + "References";
+    public static String withSourceSetSuffix(String baseName, String sourceSetName) {
         if (SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName)) {
-            return base;
+            return baseName;
         }
-        return base + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
+        return baseName + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
+    }
+
+    /**
+     * The conventional base references-interface name: the project name in PascalCase followed by the
+     * {@code domain} word ({@code Images}, {@code Charts}, or {@code References}). Each plugin uses its
+     * own domain so the generated interfaces do not collide; the result is the {@code main} source
+     * set's interface name and the base {@link #withSourceSetSuffix} extends for other source sets.
+     */
+    public static String defaultReferencesBaseName(String projectName, String domain) {
+        return GenerateReferencesTask.pascalCase(projectName) + domain;
     }
 
     /**
@@ -111,52 +115,37 @@ public final class ResourceImports {
     }
 
     /**
-     * Contributes {@code constants} to the project's single, shared references interface for
-     * {@code sourceSetName} — {@code <ProjectName>References} for {@code main}, the capitalized
-     * source-set name appended otherwise — registering the generating task (plus its Java source-set
-     * and eclipse-classpath wiring) on first use and <em>merging</em> additional constants on every
-     * later call. This lets the container, helm, and generic-artifacts plugins all write into one
-     * interface per source set instead of each emitting its own colliding file.
-     *
-     * <p>The interface's identity (task name, output directory, group, header note) is fixed here so
-     * every contributor agrees by construction; the {@code packageName} of the first contributor
-     * wins (all default to the project group). The task depends on {@code regenerateAfter} (the tasks
-     * that materialize the values). Entries whose value provider resolves to an empty string are
+     * Registers a {@link GenerateReferencesTask} producing the {@code className} interface, adds its
+     * output directory to {@code javaSourceSetName}'s Java sources (so it compiles with the project),
+     * makes it depend on {@code regenerateAfter} (the tasks that materialize the values), and wires it
+     * onto the eclipse classpath. Entries whose value provider resolves to an empty string are
      * filtered out, so a bundle with no single resolvable file contributes no constant.
+     *
+     * <p>Each plugin supplies its own task name, output directory and {@code className} domain, so the
+     * container, helm, and generic-artifacts plugins generate distinct, non-colliding interfaces
+     * ({@code <ProjectName>Images}/{@code Charts}/{@code References}) that can coexist in one project.
      */
-    public static TaskProvider<GenerateReferencesTask> contributeReferences(Project project,
-            String sourceSetName, Provider<String> packageName, Map<String, Provider<String>> constants,
+    public static TaskProvider<GenerateReferencesTask> generateReferences(Project project,
+            String group, String taskName, String className, Provider<String> packageName,
+            String generatedNote, Map<String, Provider<String>> constants,
+            Provider<Directory> outputDirectory, String javaSourceSetName,
             List<? extends TaskProvider<? extends Task>> regenerateAfter) {
-        String taskName = referencesTaskName(sourceSetName);
-        String className = referencesClassName(project.getName(), sourceSetName);
-        Provider<Directory> outputDirectory = project.getLayout().getBuildDirectory()
-                .dir("generated/sources/references/java/" + sourceSetName);
+        TaskProvider<GenerateReferencesTask> generate = project.getTasks().register(taskName,
+                GenerateReferencesTask.class, task -> {
+                    task.setGroup(group);
+                    task.setDescription("Generates the " + className + " references interface.");
+                    task.getClassName().set(className);
+                    task.getPackageName().set(packageName);
+                    task.getGeneratedNote().set(generatedNote);
+                    constants.forEach((name, value) -> task.getConstants().put(name,
+                            value.map(path -> path.isEmpty() ? null : path)));
+                    task.getOutputDirectory().convention(outputDirectory);
+                    regenerateAfter.forEach(task::dependsOn);
+                });
 
-        TaskContainer tasks = project.getTasks();
-        TaskProvider<GenerateReferencesTask> generate;
-        if (tasks.getNames().contains(taskName)) {
-            generate = tasks.named(taskName, GenerateReferencesTask.class);
-        } else {
-            generate = tasks.register(taskName, GenerateReferencesTask.class, task -> {
-                task.setGroup(REFERENCES_GROUP);
-                task.setDescription("Generates the " + className + " references interface.");
-                task.getClassName().set(className);
-                task.getPackageName().set(packageName);
-                task.getGeneratedNote().set("Generated. Do not edit.");
-                task.getOutputDirectory().convention(outputDirectory);
-            });
-            // Compile the generated interface with the source set; do this wiring exactly once.
-            SourceSet sourceSet = project.getExtensions().getByType(SourceSetContainer.class)
-                    .getByName(sourceSetName);
-            sourceSet.getJava().srcDir(generate.flatMap(GenerateReferencesTask::getOutputDirectory));
-        }
-
-        // Merge this contributor's constants and build dependencies into the shared task.
-        generate.configure(task -> {
-            constants.forEach((name, value) -> task.getConstants().put(name,
-                    value.map(path -> path.isEmpty() ? null : path)));
-            regenerateAfter.forEach(task::dependsOn);
-        });
+        SourceSet sourceSet = project.getExtensions().getByType(SourceSetContainer.class)
+                .getByName(javaSourceSetName);
+        sourceSet.getJava().srcDir(generate.flatMap(GenerateReferencesTask::getOutputDirectory));
 
         project.getPluginManager().withPlugin("eclipse", applied ->
                 project.getTasks().named("eclipseClasspath").configure(task -> {
@@ -164,17 +153,5 @@ public final class ResourceImports {
                     regenerateAfter.forEach(task::dependsOn);
                 }));
         return generate;
-    }
-
-    /**
-     * The shared references-generation task name for a source set: {@code generateReferences} for
-     * {@code main}, {@code generate<SourceSet>References} otherwise.
-     */
-    public static String referencesTaskName(String sourceSetName) {
-        if (SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName)) {
-            return "generateReferences";
-        }
-        return "generate" + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1)
-                + "References";
     }
 }

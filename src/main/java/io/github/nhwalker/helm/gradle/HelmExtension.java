@@ -55,7 +55,7 @@ public abstract class HelmExtension {
 
     /**
      * When {@code true} and the {@code java} plugin is applied, generates a
-     * {@code <ProjectName>References} Java interface exposing the {@code charts/<chart>.tgz} resource
+     * {@code <ProjectName>Charts} Java interface exposing the {@code charts/<chart>.tgz} resource
      * path of every chart that is {@link io.github.nhwalker.helm.gradle.dsl.HelmChart#importResourcesTask()
      * bundled into resources} as a {@code public static final String} constant named after the
      * chart in UPPER_SNAKE_CASE. Defaults to {@code false}. (Bundling itself is opted into
@@ -64,10 +64,18 @@ public abstract class HelmExtension {
     public abstract Property<Boolean> getGenerateReferences();
 
     /**
-     * The package the generated {@code <ProjectName>References} interface is placed into.
+     * The package the generated {@code <ProjectName>Charts} interface is placed into.
      * Defaults to the project group; when blank the default package is used.
      */
     public abstract Property<String> getReferencesPackage();
+
+    /**
+     * The name of the generated interface for the {@code main} source set. Defaults to
+     * {@code <ProjectName>Charts}; override to customize (e.g. {@code 'MyCharts'}). Charts bundled
+     * into a non-{@code main} source set append the capitalized source-set name (e.g.
+     * {@code MyChartsTest}).
+     */
+    public abstract Property<String> getReferencesClassName();
 
     /** The charts declared for this project. */
     public NamedDomainObjectContainer<HelmChart> getCharts() {

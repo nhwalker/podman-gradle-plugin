@@ -10,7 +10,7 @@ import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
  * Functional tests for bundling charts into resources and the generated
- * {@code <ProjectName>References} interface. Charts opt into bundling with
+ * {@code <ProjectName>Charts} interface. Charts opt into bundling with
  * {@code importResourcesTask()} (mirroring the generic artifacts DSL): the chart lands in the jar
  * at {@code charts/<chart>.tgz}, and when {@code generateReferences} is on that path is exposed as
  * a constant, compiled with the project's sources and wired onto the eclipse classpath.
@@ -77,19 +77,19 @@ exit 0
         """
 
         when:
-        def result = runner('generateReferences').build()
+        def result = runner('generateChartReferences').build()
 
         then: 'the charts were packaged (wired) and the interface was generated'
         result.task(':packageApiChart').outcome == SUCCESS
-        result.task(':generateReferences').outcome == SUCCESS
+        result.task(':generateChartReferences').outcome == SUCCESS
 
         and: 'the interface exposes each bundled chart jar resource path'
         def generated = new File(dir,
-                'build/generated/sources/references/java/main/com/example/FixtureReferences.java')
+                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureCharts.java')
         generated.exists()
         def text = generated.text
         text.contains('package com.example;')
-        text.contains('public interface FixtureReferences')
+        text.contains('public interface FixtureCharts')
         text.contains('public static final String API = "charts/api.tgz";')
         text.contains('public static final String WEB_PROXY = "charts/webProxy.tgz";')
     }
@@ -137,8 +137,8 @@ exit 0
 
         then: 'the chart is bundled but no references task or interface exists'
         result.task(':importApiChartResources').outcome == SUCCESS
-        result.task(':generateReferences') == null
-        !new File(dir, 'build/generated/sources/references').exists()
+        result.task(':generateChartReferences') == null
+        !new File(dir, 'build/generated/sources/helmChartRefs').exists()
         new ZipFile(new File(dir, 'build/libs/fixture.jar')).withCloseable {
             it.getEntry('charts/api.tgz') != null
         }
@@ -161,7 +161,7 @@ exit 0
         src << """
             package com.example;
             public class Consumer {
-                public static final String CHART = FixtureReferences.API;
+                public static final String CHART = FixtureCharts.API;
             }
         """
 
@@ -169,7 +169,7 @@ exit 0
         def result = runner('compileJava').build()
 
         then:
-        result.task(':generateReferences').outcome == SUCCESS
+        result.task(':generateChartReferences').outcome == SUCCESS
         result.task(':compileJava').outcome == SUCCESS
     }
 
@@ -212,16 +212,16 @@ exit 0
 
         then:
         result.task(':packageApiChart').outcome == SUCCESS
-        result.task(':generateReferences').outcome == SUCCESS
+        result.task(':generateChartReferences').outcome == SUCCESS
         result.task(':importApiChartResources').outcome == SUCCESS
         result.task(':eclipseClasspath').outcome == SUCCESS
 
         and: 'the generated source folder and the staged chart resource folder are both on the classpath'
         new File(dir,
-                'build/generated/sources/references/java/main/com/example/FixtureReferences.java').exists()
+                'build/generated/sources/helmChartRefs/java/main/com/example/FixtureCharts.java').exists()
         new File(dir, 'build/generated/resources/helmCharts/api/main/charts/api.tgz').exists()
         def classpath = new File(dir, '.classpath').text
-        classpath.contains('build/generated/sources/references/java/main')
+        classpath.contains('build/generated/sources/helmChartRefs/java/main')
         classpath.contains('build/generated/resources/helmCharts/api/main')
     }
 }

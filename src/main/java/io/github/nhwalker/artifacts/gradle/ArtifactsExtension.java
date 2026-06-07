@@ -68,6 +68,14 @@ public abstract class ArtifactsExtension {
      */
     public abstract Property<String> getReferencesPackage();
 
+    /**
+     * The name of the generated interface for the {@code main} source set. Defaults to
+     * {@code <ProjectName>References}; override to customize (e.g. {@code 'MyRefs'}). Constants
+     * declared for a non-{@code main} source set append the capitalized source-set name (e.g.
+     * {@code MyRefsTest}).
+     */
+    public abstract Property<String> getReferencesClassName();
+
     /** The classified artifacts this project publishes. */
     public NamedDomainObjectContainer<ProducedArtifact> getProduce() {
         return produce;

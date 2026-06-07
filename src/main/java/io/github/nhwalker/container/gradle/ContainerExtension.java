@@ -61,7 +61,7 @@ public abstract class ContainerExtension {
 
     /**
      * When {@code true} and a Java plugin is applied, the plugin generates a
-     * {@code <ProjectName>References} Java interface exposing each declared image's full
+     * {@code <ProjectName>Images} Java interface exposing each declared image's full
      * docker identifier (its primary tag) as a {@code public static final String}
      * constant named after the image in UPPER_SNAKE_CASE. The interface is added to
      * the {@code main} source set and (re)generated whenever an image is built.
@@ -70,10 +70,17 @@ public abstract class ContainerExtension {
     public abstract Property<Boolean> getGenerateJavaRefs();
 
     /**
-     * The package the generated {@code <ProjectName>References} interface is placed into.
+     * The package the generated {@code <ProjectName>Images} interface is placed into.
      * Defaults to the project group; when blank the default package is used.
      */
     public abstract Property<String> getJavaRefsPackage();
+
+    /**
+     * The name of the generated interface. Defaults to {@code <ProjectName>Images}; override to
+     * customize (e.g. {@code 'MyImages'}). Image references are always {@code main}, so the value is
+     * used verbatim.
+     */
+    public abstract Property<String> getJavaRefsClassName();
 
     /** The images declared for this project. */
     public NamedDomainObjectContainer<ContainerImage> getImages() {
