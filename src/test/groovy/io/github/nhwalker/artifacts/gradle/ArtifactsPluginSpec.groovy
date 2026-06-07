@@ -125,7 +125,7 @@ class ArtifactsPluginSpec extends Specification {
         e.message.contains('empty') || e.cause?.message?.contains('empty')
     }
 
-    def "a consumer creates a dependency bucket and a classifier-requesting resolvable, exposing files"() {
+    def "a consumer with a classifier requests it WITHOUT the ecosystem fence, plus free attributes"() {
         given:
         project.genericArtifacts {
             consume {
@@ -145,14 +145,49 @@ class ArtifactsPluginSpec extends Specification {
         !bucket.canBeConsumed && !bucket.canBeResolved && bucket.canBeDeclared
         bucket.dependencies.find { it.group == 'com.example' && it.name == 'producer' } != null
 
-        and:
+        and: 'the request carries classifier + free attributes but NOT the ecosystem fence'
         def resolvable = project.configurations.getByName('theReportRefs')
         resolvable.canBeResolved && !resolvable.canBeConsumed
-        resolvable.attributes.getAttribute(ArtifactsAttributes.ECOSYSTEM) == ArtifactsAttributes.ECOSYSTEM_VALUE
+        resolvable.attributes.getAttribute(ArtifactsAttributes.ECOSYSTEM) == null
         resolvable.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == 'report'
         resolvable.attributes.getAttribute(ArtifactsAttributes.freeAttribute('flavor')) == 'html'
 
         and: 'the DSL files view is backed by the resolvable'
         project.genericArtifacts.consume.theReport.files instanceof org.gradle.api.file.FileCollection
+    }
+
+    def "a consumer with no classifier and no attributes requests an empty attribute set"() {
+        given:
+        project.genericArtifacts { consume { mainJar { from 'com.example:lib:1.0' } } }
+
+        when:
+        evaluate()
+
+        then:
+        def resolvable = project.configurations.getByName('mainJarRefs')
+        resolvable.canBeResolved
+        resolvable.attributes.isEmpty()
+    }
+
+    def "a consumer can request native (non-namespaced) attributes for selecting a JVM variant"() {
+        given:
+        project.genericArtifacts {
+            consume {
+                libSources {
+                    from 'com.example:lib:1.0'
+                    attribute 'org.gradle.category', 'documentation'
+                    attribute 'org.gradle.docstype', 'sources'
+                }
+            }
+        }
+
+        when:
+        evaluate()
+
+        then:
+        def resolvable = project.configurations.getByName('libSourcesRefs')
+        resolvable.attributes.getAttribute(ArtifactsAttributes.freeAttribute('org.gradle.docstype')) == 'sources'
+        resolvable.attributes.getAttribute(ArtifactsAttributes.freeAttribute('org.gradle.category')) == 'documentation'
+        resolvable.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == null
     }
 }

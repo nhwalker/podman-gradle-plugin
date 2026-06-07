@@ -152,6 +152,103 @@ class ArtifactsFunctionalSpec extends Specification {
         new File(dir, 'build/repo/com/example/platform/1.0/platform-1.0-report.txt').text == 'published-report'
     }
 
+    def "consumes a generic artifact by classifier from a project that ALSO publishes JVM variants"() {
+        given: 'a producer applying java + our plugin, so the module has both JVM and generic variants'
+        new File(dir, 'settings.gradle') << "rootProject.name='mixed'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts'; id 'java'; id 'maven-publish' }
+            group = 'com.example'; version = '1.0'
+            java { withSourcesJar() }
+            ${producerBody('mixed-report')}
+        """
+        new File(dir, 'producer/src/main/java/com/example').mkdirs()
+        new File(dir, 'producer/src/main/java/com/example/A.java') << 'package com.example; public class A {}\n'
+
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            genericArtifacts { consume { theReport { from project(':producer'); classifier = 'report' } } }
+            ${consumerUseReportTask()}
+        """
+
+        when:
+        def result = runner(dir, ':consumer:useReport').build()
+
+        then: 'classifier alone selected our generic variant, not the jar/sources/javadoc'
+        result.task(':consumer:useReport').outcome == SUCCESS
+        new File(dir, 'consumer/build/resolved.txt').text == 'mixed-report'
+    }
+
+    def "consumes a native JVM sources jar from another project via native attributes (same API)"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='native'\ninclude ':lib', ':consumer'\n"
+        new File(dir, 'lib').mkdirs()
+        new File(dir, 'lib/build.gradle') << """
+            plugins { id 'java' }
+            group = 'com.example'; version = '1.0'
+            java { withSourcesJar() }
+        """
+        new File(dir, 'lib/src/main/java/com/example').mkdirs()
+        new File(dir, 'lib/src/main/java/com/example/A.java') << 'package com.example; public class A {}\n'
+
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume {
+                    libSources {
+                        from project(':lib')
+                        attribute 'org.gradle.category', 'documentation'
+                        attribute 'org.gradle.docstype', 'sources'
+                    }
+                }
+            }
+            tasks.register('grab', Copy) { from genericArtifacts.consume.libSources.files; into layout.buildDirectory.dir('out') }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:grab').build()
+
+        then:
+        result.task(':consumer:grab').outcome == SUCCESS
+        new File(dir, 'consumer/build/out').listFiles().any { it.name.endsWith('-sources.jar') }
+    }
+
+    def "consumes a plain Maven-repo artifact by classifier notation (same API)"() {
+        given: 'publish a generic artifact to a local maven repo'
+        def repo = new File(dir, 'repo')
+        def producer = new File(dir, 'producer'); producer.mkdirs()
+        new File(producer, 'settings.gradle') << "rootProject.name='platform'\n"
+        new File(producer, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts'; id 'maven-publish' }
+            group = 'com.example'; version = '1.0'
+            ${producerBody('repo-report')}
+            publishing {
+                publications { maven(MavenPublication) { from components.genericArtifacts } }
+                repositories { maven { name = 'test'; url = '${repo.toURI()}' } }
+            }
+        """
+        runner(producer, 'publish').build()
+
+        and: 'a separate consumer that resolves it from the repo by classifier notation'
+        def consumer = new File(dir, 'consumer'); consumer.mkdirs()
+        new File(consumer, 'settings.gradle') << "rootProject.name='consumer'\n"
+        new File(consumer, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            repositories { maven { url = '${repo.toURI()}' } }
+            genericArtifacts { consume { theReport { from 'com.example:platform:1.0:report@txt' } } }
+            ${consumerUseReportTask()}
+        """
+
+        when:
+        def result = runner(consumer, ':useReport').build()
+
+        then:
+        result.task(':useReport').outcome == SUCCESS
+        new File(consumer, 'build/resolved.txt').text == 'repo-report'
+    }
+
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {
         given: 'a standalone producer build addressed by group:name'
         def cp = pluginClasspathFilesLiteral()

@@ -956,18 +956,35 @@ produced artifact as an attribute-selected variant with a distinct classifier.
 
 ### Consuming artifacts
 
-Declare dependencies under `genericArtifacts { consume { } }`. Each element resolves the
-artifact matching its `classifier` (+ free attributes) and exposes the resolved files
-as `…consume.<name>.files`, ready to wire into any task:
+Declare dependencies under `genericArtifacts { consume { } }`. Each element exposes the
+resolved files as `…consume.<name>.files`, ready to wire into any task. The request
+carries **exactly the attributes you declare — nothing by default** — and crucially it
+does *not* add the `ecosystem` fence on the consumer side. That makes one API able to
+fetch four different kinds of thing:
 
 ```groovy
 genericArtifacts {
     consume {
-        theReport {
-            from 'com.example:platform:1.0'   // or project(':other')
-            classifier = 'report'
-            attribute 'flavor', 'html'         // must match the producer's attributes
+        // 1. A generic artifact published by this plugin (project / composite / repo).
+        //    `classifier` adds io.github.nhwalker.artifacts.classifier, which uniquely
+        //    selects our variant even when the target also publishes JVM variants.
+        theReport { from 'com.example:platform:1.0'; classifier = 'report' }
+
+        // 2. A native variant of ANOTHER Gradle project — e.g. its sources jar —
+        //    selected by that ecosystem's own attributes (String values match the
+        //    typed/Named producer attributes by name).
+        libSources {
+            from project(':lib')
+            attribute 'org.gradle.category', 'documentation'
+            attribute 'org.gradle.docstype', 'sources'
         }
+
+        // 3. The conventional default artifact of another project (a Java library's
+        //    main jar) — no attributes needed.
+        libJar { from project(':lib') }
+
+        // 4. A plain Maven-repo artifact by classifier (artifact-only notation).
+        guavaSources { from 'com.google.guava:guava:33.0.0-jre:sources@jar' }
     }
 }
 
@@ -977,6 +994,21 @@ tasks.register('useReport') {
     doLast { println files.singleFile.text }
 }
 ```
+
+**Why no `ecosystem` fence on the consumer?** The fence stays on the *producer* (so our
+variants never leak into anyone's `runtimeClasspath`), but requiring it on the request
+would wall the consumer off from everything else. Dropping it lets the *same* request
+machinery — Gradle's variant matcher — select our artifacts (via `classifier`) or any
+other project's variants (via their attributes), while keeping composite-build safety.
+
+**Which mechanism for which source:**
+
+| Source | How to consume | Notes |
+|---|---|---|
+| Our artifact, project / composite / repo | `classifier = '…'` (attribute) | composite-safe; uniquely selects our variant |
+| Another project's native variant (sources, etc.) | `attribute '…', '…'` (native attrs) | target must expose it as a variant |
+| Another project's default artifact (main jar) | no attributes | falls back to the conventional default |
+| Plain Maven-repo artifact (incl. sources jars) | classifier in the `from` notation (`:sources@jar`) | artifact-only; repo-only |
 
 ### Composite builds
 

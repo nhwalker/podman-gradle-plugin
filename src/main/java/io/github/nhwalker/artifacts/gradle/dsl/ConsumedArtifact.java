@@ -11,23 +11,38 @@ import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 
 /**
- * A single classified artifact dependency declared in
- * {@code genericArtifacts { consume { } }}.
+ * A single artifact dependency declared in {@code genericArtifacts { consume { } }}.
  *
  * <p>The plugin turns each consumed artifact into a dependency-scope bucket (holding
- * the {@link #from(Object) declared dependencies}) and a resolvable that requests the
- * {@code ecosystem}/{@code classifier} attributes plus the free attributes, then
- * populates {@link #getFiles()} from that resolvable. Wire {@code getFiles()} into
- * your own tasks to consume the resolved artifact.
+ * the {@link #from(Object) declared dependencies}) and a resolvable whose requested
+ * attributes are <em>exactly</em> what you declare here — nothing by default. It then
+ * populates {@link #getFiles()} from that resolvable; wire {@code getFiles()} into your
+ * own tasks to consume the resolved artifact.
+ *
+ * <p>Unlike the producer side, the consumer does <strong>not</strong> request the
+ * {@code ecosystem} fence. This is deliberate: a bare request resolves the target's
+ * conventional default (e.g. a Java library's main jar), and adding attributes lets the
+ * same one API select either a generic artifact published by this plugin or a native
+ * variant of any other Gradle project:
  *
  * <pre>
  * genericArtifacts { consume {
- *     theReport {                          // classifier defaults to the element name 'theReport'
- *         from 'com.example:producer:1.0'  // or project(':other')
- *         classifier = 'report'
- *         attribute 'flavor', 'html'
+ *     // a generic artifact published by this plugin (project / composite / repo)
+ *     theReport { from 'com.example:producer:1.0'; classifier = 'report' }
+ *
+ *     // a native variant of another project — selected by its own attributes
+ *     libSources {
+ *         from project(':lib')
+ *         attribute 'org.gradle.category', 'documentation'
+ *         attribute 'org.gradle.docstype', 'sources'
  *     }
- * } }
+ *
+ *     // the main jar of another project — no attributes needed
+ *     libJar { from project(':lib') }
+ *
+ *     // a plain Maven-repo artifact by classifier (artifact-only notation)
+ *     guavaSources { from 'com.google.guava:guava:33.0.0-jre:sources@jar' }
+ * }}
  * tasks.register('useReport') { inputs.files genericArtifacts.consume.theReport.files }
  * </pre>
  */
@@ -37,10 +52,8 @@ public abstract class ConsumedArtifact implements Named {
     private final List<Object> dependencyNotations = new ArrayList<>();
 
     @Inject
-    @SuppressWarnings("this-escape")
     public ConsumedArtifact(String name) {
         this.name = name;
-        getClassifier().convention(name);
     }
 
     @Override
@@ -48,10 +61,20 @@ public abstract class ConsumedArtifact implements Named {
         return name;
     }
 
-    /** The classifier selecting which artifact to resolve. Defaults to the element name. */
+    /**
+     * Optional. When set, the request carries the
+     * {@code io.github.nhwalker.artifacts.classifier} attribute with this value, which
+     * selects a generic artifact published by this plugin. Leave unset to request no
+     * classifier (use {@link #attribute} for native attributes, or neither to get the
+     * target's default artifact).
+     */
     public abstract Property<String> getClassifier();
 
-    /** Free String attributes the resolved variant must match. */
+    /**
+     * Free String attributes added to the request. May be this plugin's own attributes
+     * or any native Gradle attribute (e.g. {@code org.gradle.docstype = sources});
+     * String values match typed/{@code Named} producer attributes by name.
+     */
     public abstract MapProperty<String, String> getAttributes();
 
     /** The resolved artifact files. Populated by the plugin from the resolvable configuration. */

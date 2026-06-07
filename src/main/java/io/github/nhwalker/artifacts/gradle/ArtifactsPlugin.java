@@ -85,9 +85,11 @@ public class ArtifactsPlugin implements Plugin<Project> {
     }
 
     private void registerConsumer(Project project, ConsumedArtifact artifact) {
-        String classifier = artifact.getClassifier().get();
+        // Null classifier => request no classifier attribute. Free attributes are NOT
+        // registered in the schema: they may be native names (e.g. org.gradle.docstype)
+        // already typed by another plugin, and String values match those by name anyway.
+        String classifier = artifact.getClassifier().getOrNull();
         Map<String, String> attributes = artifact.getAttributes().get();
-        attributes.keySet().forEach(key -> ArtifactsDependencies.registerAttributeKey(project, key));
 
         NamedDomainObjectProvider<DependencyScopeConfiguration> bucket =
                 ArtifactsDependencies.dependencyBucket(project, depsName(artifact.getName()));

@@ -55,13 +55,17 @@ public final class ArtifactsDependencies {
 
     /**
      * Registers a user-declared free String attribute {@code key} in {@code project}'s
-     * attribute schema if it is not already present. Idempotent.
+     * attribute schema if no attribute with that <em>name</em> is already present.
+     * Idempotent, and a no-op when the name is already registered under another type
+     * (e.g. a native {@code Named} attribute such as {@code org.gradle.docstype}), so it
+     * never conflicts with the JVM ecosystem's typed attributes.
      */
     public static void registerAttributeKey(Project project, String key) {
         var schema = project.getDependencies().getAttributesSchema();
-        var attribute = ArtifactsAttributes.freeAttribute(key);
-        if (!schema.hasAttribute(attribute)) {
-            schema.attribute(attribute);
+        boolean alreadyPresent = schema.getAttributes().stream()
+                .anyMatch(existing -> existing.getName().equals(key));
+        if (!alreadyPresent) {
+            schema.attribute(ArtifactsAttributes.freeAttribute(key));
         }
     }
 
@@ -98,8 +102,13 @@ public final class ArtifactsDependencies {
     }
 
     /**
-     * Creates a resolvable that resolves {@code bucket} to the artifact selected by
-     * {@code classifier} (+ the given free attributes).
+     * Creates a resolvable that resolves {@code bucket}. The request carries
+     * <em>only</em> the attributes given here: this plugin's {@code classifier}
+     * attribute when {@code classifier} is non-null, plus the given free attributes
+     * (which may be native Gradle attributes). It deliberately does <strong>not</strong>
+     * add the {@code ecosystem} fence, so the same resolvable can select a generic
+     * artifact, a native variant of another project, or — with no attributes — the
+     * target's default artifact.
      */
     public static NamedDomainObjectProvider<ResolvableConfiguration> resolvable(
             Project project, String configurationName,
@@ -107,8 +116,9 @@ public final class ArtifactsDependencies {
             String classifier, Map<String, String> freeAttributes) {
         return project.getConfigurations().resolvable(configurationName, cfg -> {
             cfg.extendsFrom(bucket.get());
-            cfg.getAttributes().attribute(ArtifactsAttributes.ECOSYSTEM, ArtifactsAttributes.ECOSYSTEM_VALUE);
-            cfg.getAttributes().attribute(ArtifactsAttributes.CLASSIFIER, classifier);
+            if (classifier != null) {
+                cfg.getAttributes().attribute(ArtifactsAttributes.CLASSIFIER, classifier);
+            }
             applyFreeAttributes(cfg.getAttributes(), freeAttributes);
         });
     }
