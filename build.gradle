@@ -41,6 +41,12 @@ gradlePlugin {
             displayName = 'Helm Gradle Plugin'
             description = 'Gradle plugin contributing tasks for working with the helm CLI'
         }
+        genericArtifacts {
+            id = 'io.github.nhwalker.artifacts'
+            implementationClass = 'io.github.nhwalker.artifacts.gradle.ArtifactsPlugin'
+            displayName = 'Generic Artifacts Gradle Plugin'
+            description = 'Publish and consume arbitrary artifacts via attribute-based classifiers'
+        }
     }
 }
 

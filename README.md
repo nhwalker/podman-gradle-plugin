@@ -13,8 +13,12 @@ how each task maps to a podman subcommand. For a quick start, jump to
 - **Built and tested with:** Gradle 9.2, Java 17+
 - **Plugin id:** `io.github.nhwalker.container`
 
-This build also ships a sibling **Helm** plugin (`io.github.nhwalker.helm`) that
-follows the same design for the `helm` CLI — see [Helm Plugin](#helm-plugin).
+This build also ships two sibling plugins that follow the same design: a **Helm**
+plugin (`io.github.nhwalker.helm`) for the `helm` CLI — see
+[Helm Plugin](#helm-plugin) — and a **Generic Artifacts** plugin
+(`io.github.nhwalker.artifacts`) that generalizes the "publish/consume artifacts
+as variant-aware dependencies" machinery to *any* file — see
+[Generic Artifacts Plugin](#generic-artifacts-plugin).
 
 ---
 
@@ -858,6 +862,194 @@ tasks.register('helmVersion', HelmExecTask) {
     arguments = ['version', '--short']
 }
 ```
+
+---
+
+## Generic Artifacts Plugin
+
+The same build ships a third, independently applied plugin,
+`io.github.nhwalker.artifacts`, that **generalizes** the "share an artifact between
+projects as a variant-aware dependency" machinery the container and helm plugins use
+into a reusable, artifact-agnostic plugin. Where those plugins know about images and
+charts, this one knows about *nothing in particular* — you hand it any file(s) and a
+**classifier** (plus optional free attributes), and it publishes and consumes them
+through Gradle's normal dependency model.
+
+### Why: a classifier that survives composite builds
+
+In Maven, several artifacts share one module coordinate and are told apart by a
+**classifier** (`group:name:version:classifier`). That works in a plain Maven
+repository, but a Maven classifier is **not** a first-class part of Gradle's variant
+model: when a Gradle **composite build** substitutes an external coordinate with a
+locally included project, the classifier selector is lost — the included project has
+no notion of it, so the substitution can't pick the right artifact.
+
+Gradle **attributes** do survive substitution: the included project exposes consumable
+configurations carrying the same attributes, and Gradle's variant matcher re-selects
+them. This plugin therefore models a classifier as an **attribute**
+(`io.github.nhwalker.artifacts.classifier`), optionally refined by any number of
+user-declared free String attributes. The result is a classifier that behaves
+identically whether the dependency resolves from a Maven repo, another project in the
+same build, or an included build — with **no `dependencySubstitution` rules** on either
+side.
+
+### How it is modeled
+
+Exactly like container images and helm charts — "one module, several attribute-selected
+variants":
+
+- **Module identity** stays at the project's implicit `group:name` coordinate (its
+  default capability); no custom capabilities are added, which is what lets composite
+  builds substitute it automatically.
+- **Which artifact** within the module is chosen by the `classifier` attribute plus any
+  free attributes you declare. Each produced artifact becomes one consumable
+  configuration (one variant) whose Maven classifier defaults to the `classifier`
+  value, so it is addressable by classifier in a plain Maven repo too.
+- A required `ecosystem=generic-artifact` marker fences these variants off from the JVM
+  ecosystem. The attributes live in
+  `io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes`.
+
+The plugin contributes one software component, `genericArtifacts`, aggregating every
+produced artifact's variant for publishing. Applying the plugin adds **no tasks** — it
+only registers the `genericArtifacts { }` extension and the component.
+
+> **Note on the extension name:** Gradle's `Project` already has a built-in
+> `artifacts { }` method (the `ArtifactHandler`), which would shadow an extension named
+> `artifacts`. The extension is therefore accessed as **`genericArtifacts`**, while the
+> plugin id remains `io.github.nhwalker.artifacts`.
+
+### Producing artifacts
+
+Declare artifacts under `genericArtifacts { produce { } }`. Each element's name is its
+default classifier. When the artifact notation is a task output, the producing task is
+wired as a build dependency automatically; for a plain file, set `builtBy(...)` so both
+publishing and consumption still trigger the producer.
+
+```groovy
+plugins { id 'io.github.nhwalker.artifacts'; id 'maven-publish' }
+group = 'com.example'; version = '1.0'
+
+def reportFile = layout.buildDirectory.file('reports/site.html')
+tasks.register('makeReport') {
+    outputs.file(reportFile)
+    doLast { reportFile.get().asFile.text = '<html>…</html>' }
+}
+
+genericArtifacts {
+    produce {
+        report {                                  // classifier defaults to 'report'
+            attribute 'flavor', 'html'            // optional free attributes
+            artifact reportFile, { builtBy 'makeReport' }
+        }
+        bundle {
+            classifier = 'dist'                   // override the classifier
+            artifact tasks.makeBundle            // task output → build dependency inferred
+        }
+    }
+}
+
+publishing { publications { maven(MavenPublication) { from components.genericArtifacts } } }
+```
+
+The whole project publishes as one module whose Gradle Module Metadata carries each
+produced artifact as an attribute-selected variant with a distinct classifier.
+
+#### Application & distribution archives
+
+The `application` and `distribution` plugins do **not** expose their `.zip`/`.tar`
+archives as attribute-selectable variants — the archives sit only in the legacy,
+attribute-less `archives` configuration (mixed in with the jar), so there is no native
+attribute (and thus no preset) to target them by. The clean, composite-safe way to share
+a distribution is to publish it as a generic artifact: the `distZip`/`distTar` tasks
+expose a `Provider<RegularFile>` that already carries their build dependency, so it's a
+one-liner with the existing `produce` API:
+
+```groovy
+plugins { id 'application'; id 'io.github.nhwalker.artifacts' }
+
+genericArtifacts {
+    produce {
+        dist { classifier = 'dist'; artifact tasks.distZip.archiveFile }
+    }
+}
+```
+
+Consumers then select it with the normal API — `consume { theDist { from project(':app'); classifier = 'dist' } }` —
+composite-safe and publishable, and `classifier = 'dist'` cleanly picks it even though
+the module also publishes the usual `apiElements`/`runtimeElements` JVM variants.
+
+### Consuming artifacts
+
+Declare dependencies under `genericArtifacts { consume { } }`. Each element exposes the
+resolved files as `…consume.<name>.files`, ready to wire into any task. The request
+carries **exactly the attributes you declare — nothing by default** — and crucially it
+does *not* add the `ecosystem` fence on the consumer side. That makes one API able to
+fetch four different kinds of thing:
+
+```groovy
+genericArtifacts {
+    consume {
+        // 1. A generic artifact published by this plugin (project / composite / repo).
+        //    `classifier` adds io.github.nhwalker.artifacts.classifier, which uniquely
+        //    selects our variant even when the target also publishes JVM variants.
+        theReport { from 'com.example:platform:1.0'; classifier = 'report' }
+
+        // 2. A native variant of ANOTHER Gradle project — e.g. its sources jar.
+        //    sources()/javadoc() are presets; or use attribute '...','...' for any
+        //    other native variant (String values match typed producer attributes by name).
+        libSources { from project(':lib'); sources() }
+
+        // 3. The conventional default artifact of another project (a Java library's
+        //    main jar) — no attributes needed.
+        libJar { from project(':lib') }
+
+        // 4. A plain Maven-repo artifact by classifier (artifact-only notation).
+        guavaSources { from 'com.google.guava:guava:33.0.0-jre:sources@jar' }
+    }
+}
+
+tasks.register('useReport') {
+    def files = genericArtifacts.consume.theReport.files
+    inputs.files files
+    doLast { println files.singleFile.text }
+}
+```
+
+**Why no `ecosystem` fence on the consumer?** The fence stays on the *producer* (so our
+variants never leak into anyone's `runtimeClasspath`), but requiring it on the request
+would wall the consumer off from everything else. Dropping it lets the *same* request
+machinery — Gradle's variant matcher — select our artifacts (via `classifier`) or any
+other project's variants (via their attributes), while keeping composite-build safety.
+
+**Which mechanism for which source:**
+
+| Source | How to consume | Notes |
+|---|---|---|
+| Our artifact, project / composite / repo | `classifier = '…'` (attribute) | composite-safe; uniquely selects our variant |
+| Another project's native variant (sources, etc.) | `sources()` / `javadoc()` preset, or `attribute '…', '…'` | target must expose it as a variant |
+| Another project's default artifact (main jar) | no attributes | falls back to the conventional default |
+| Plain Maven-repo artifact (incl. sources jars) | classifier in the `from` notation (`:sources@jar`) | artifact-only; repo-only |
+
+### Composite builds
+
+Because identity is the project coordinate and selection is an attribute, an included
+build transparently substitutes the external coordinate — the consumer build script is
+**identical** whether the artifact resolves from a repository or a local project:
+
+```groovy
+// consumer settings.gradle
+includeBuild '../platform'
+// consumer build.gradle — unchanged from the repo-resolved case
+genericArtifacts { consume { theReport { from 'com.example:platform:1.0'; classifier = 'report' } } }
+```
+
+### Low-level plumbing
+
+The DSL is built on public helpers in
+`io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies`
+(`registerSchema`, `registerAttributeKey`, `elements`, `dependencyBucket`,
+`resolvable`), so you can wire your own configurations into the same model without the
+`genericArtifacts { }` extension.
 
 ---
 
