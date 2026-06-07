@@ -525,8 +525,15 @@ jars:
   by default, its digest (`name@sha256:…`) — a coordinate pointer; the image itself stays
   in podman's local storage. The **archive** variant carries the actual `podman save` tar.
 
-The custom attributes live in `io.github.nhwalker.container.gradle.dependency.ContainerAttributes`
-and are isolated from the JVM ecosystem by a required `ecosystem=container-image` marker.
+Images are published and consumed as **generic artifacts** — they reuse the
+`io.github.nhwalker.artifacts` plugin's model. The variant's Maven classifier is
+`<image>-reference` (a `txt` file) or `<image>` (a `tar`), a required
+`ecosystem=generic-artifact` marker fences the variants off from the JVM ecosystem, and
+the container free String attributes — `io.github.nhwalker.container.imageName`,
+`imageType`, and `archiveFormat`, whose keys live in
+`io.github.nhwalker.container.gradle.dependency.ContainerAttributes` — refine which image
+and which form a request selects. A side benefit: any project can consume an image
+through the generic `genericArtifacts { consume { } }` DSL, not just the container plugin.
 
 ### Base images (`FROM`)
 
@@ -560,45 +567,45 @@ FROM ${BASE_IMAGE}
 
 ### Archive transfer
 
-Set `createArchive = true` on the producer, then resolve the `archive` variant in the
-consumer and feed it to `ContainerLoadTask` (or a push):
+Set `createArchive = true` on the producer, then consume the `archive` variant — the
+archive's classifier is the image name — and feed it to `ContainerLoadTask` (or a push).
+Apply `io.github.nhwalker.artifacts` alongside the container plugin and use its
+`consume { }` DSL:
 
 ```groovy
-import io.github.nhwalker.container.gradle.dependency.ContainerAttributes
+plugins { id 'io.github.nhwalker.container'; id 'io.github.nhwalker.artifacts' }
 
-configurations {
-    incomingImage {
-        canBeConsumed = false; canBeResolved = true
-        attributes {
-            attribute(ContainerAttributes.ECOSYSTEM, ContainerAttributes.ECOSYSTEM_VALUE)
-            attribute(ContainerAttributes.IMAGE_TYPE, ContainerAttributes.IMAGE_TYPE_ARCHIVE)
-        }
+genericArtifacts {
+    consume {
+        // classifier '<image>' selects the archive (tar); '<image>-reference' the reference.
+        incomingImage { from project(':base'); classifier = 'base' }
     }
 }
-dependencies { incomingImage project(':base') }
 
 tasks.register('loadBase', io.github.nhwalker.container.gradle.tasks.ContainerLoadTask) {
-    inputFile = layout.file(provider { configurations.incomingImage.singleFile })
+    inputFile = layout.file(provider { genericArtifacts.consume.incomingImage.files.singleFile })
 }
 ```
 
 ### Aggregate & push
 
 An aggregator project depends on several image projects and iterates the resolved
-references (or archives):
+references (or archives). Select the form with the `imageType` free attribute instead of
+a classifier, so a single request gathers every reference variant regardless of image
+name:
 
 ```groovy
-configurations {
-    allRefs {
-        canBeConsumed = false; canBeResolved = true
-        attributes {
-            attribute(ContainerAttributes.ECOSYSTEM, ContainerAttributes.ECOSYSTEM_VALUE)
-            attribute(ContainerAttributes.IMAGE_TYPE, ContainerAttributes.IMAGE_TYPE_REFERENCE)
+plugins { id 'io.github.nhwalker.container'; id 'io.github.nhwalker.artifacts' }
+
+genericArtifacts {
+    consume {
+        allRefs {
+            from project(':base'); from project(':app')
+            attribute 'io.github.nhwalker.container.imageType', 'reference'
         }
     }
 }
-dependencies { allRefs project(':base'); allRefs project(':app') }
-// a push task reads each file's first line (the coordinate)
+// a push task reads each file's first line (the coordinate) from genericArtifacts.consume.allRefs.files
 ```
 
 ### Publishing
@@ -676,11 +683,13 @@ public interface FixtureImages {
 
 ### Low-level plumbing
 
-The DSL is built on public helpers in
-`io.github.nhwalker.container.gradle.dependency.ContainerDependencies`
-(`registerSchema`, `referenceElements`, `archiveElements`, `baseImageBucket`,
-`resolvableReferences`) plus the `ContainerImageReferenceTask` type, so you can wire your own
-tasks into the same configurations without the `images { }` container.
+The DSL is built on the generic artifacts plumbing in
+`io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies`
+(`registerSchema`, `registerAttributeKey`, `elements`, `dependencyBucket`, `resolvable`) —
+the container free-attribute keys and values live in
+`io.github.nhwalker.container.gradle.dependency.ContainerAttributes` — plus the
+`ContainerImageReferenceTask` type, so you can wire your own tasks into the same
+configurations without the `images { }` container.
 
 ---
 

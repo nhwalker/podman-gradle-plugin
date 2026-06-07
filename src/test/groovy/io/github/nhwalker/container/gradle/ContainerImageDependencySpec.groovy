@@ -1,5 +1,6 @@
 package io.github.nhwalker.container.gradle
 
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes
 import org.gradle.api.component.AdhocComponentWithVariants
 import org.gradle.api.internal.project.ProjectInternal
@@ -8,8 +9,10 @@ import spock.lang.Specification
 
 /**
  * Unit tests for the variant-aware image dependency wiring: attribute schema,
- * per-image tasks/configurations, and the publishable software component. Uses
- * ProjectBuilder and forces the configuration lifecycle with evaluate() so the
+ * per-image tasks/configurations, and the publishable software component. Images are
+ * modeled as generic artifacts, so the variants carry the generic
+ * {@code ecosystem}/{@code classifier} attributes plus the container free attributes.
+ * Uses ProjectBuilder and forces the configuration lifecycle with evaluate() so the
  * plugin's afterEvaluate reaction runs.
  */
 class ContainerImageDependencySpec extends Specification {
@@ -26,12 +29,16 @@ class ContainerImageDependencySpec extends Specification {
         ((ProjectInternal) project).evaluate()
     }
 
-    def "registers the container attributes in the schema"() {
+    def "registers the generic artifact attributes and the container free-attribute keys"() {
         expect:
-        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.ECOSYSTEM)
-        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.IMAGE_NAME)
-        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.IMAGE_TYPE)
-        project.dependencies.attributesSchema.hasAttribute(ContainerAttributes.ARCHIVE_FORMAT)
+        project.dependencies.attributesSchema.hasAttribute(ArtifactsAttributes.ECOSYSTEM)
+        project.dependencies.attributesSchema.hasAttribute(ArtifactsAttributes.CLASSIFIER)
+        project.dependencies.attributesSchema
+                .hasAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_NAME_KEY))
+        project.dependencies.attributesSchema
+                .hasAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_TYPE_KEY))
+        project.dependencies.attributesSchema
+                .hasAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.ARCHIVE_FORMAT_KEY))
     }
 
     def "an image creates build + reference tasks and a reference-elements consumable"() {
@@ -48,9 +55,16 @@ class ContainerImageDependencySpec extends Specification {
         and:
         def cfg = project.configurations.getByName('fooReferenceElements')
         cfg.canBeConsumed && !cfg.canBeResolved && !cfg.canBeDeclared
-        cfg.attributes.getAttribute(ContainerAttributes.ECOSYSTEM) == ContainerAttributes.ECOSYSTEM_VALUE
-        cfg.attributes.getAttribute(ContainerAttributes.IMAGE_NAME) == 'foo'
-        cfg.attributes.getAttribute(ContainerAttributes.IMAGE_TYPE) == ContainerAttributes.IMAGE_TYPE_REFERENCE
+        cfg.attributes.getAttribute(ArtifactsAttributes.ECOSYSTEM) == ArtifactsAttributes.ECOSYSTEM_VALUE
+        cfg.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == 'foo-reference'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_NAME_KEY)) == 'foo'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_TYPE_KEY)) ==
+                ContainerAttributes.IMAGE_TYPE_REFERENCE
+
+        and: 'the outgoing artifact is the reference file (txt) classified <image>-reference'
+        def artifact = cfg.outgoing.artifacts.first()
+        artifact.type == 'txt'
+        artifact.classifier == 'foo-reference'
 
         and: 'the project component exists and is adhoc'
         project.components.findByName('container') instanceof AdhocComponentWithVariants
@@ -67,8 +81,16 @@ class ContainerImageDependencySpec extends Specification {
         project.tasks.findByName('saveFooImage') != null
         def cfg = project.configurations.getByName('fooArchiveElements')
         cfg.canBeConsumed && !cfg.canBeResolved
-        cfg.attributes.getAttribute(ContainerAttributes.IMAGE_TYPE) == ContainerAttributes.IMAGE_TYPE_ARCHIVE
-        cfg.attributes.getAttribute(ContainerAttributes.ARCHIVE_FORMAT) == ContainerAttributes.ARCHIVE_FORMAT_OCI
+        cfg.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == 'foo'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_TYPE_KEY)) ==
+                ContainerAttributes.IMAGE_TYPE_ARCHIVE
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.ARCHIVE_FORMAT_KEY)) ==
+                ContainerAttributes.ARCHIVE_FORMAT_OCI
+
+        and: 'the outgoing artifact is the saved archive (tar) classified <image>'
+        def artifact = cfg.outgoing.artifacts.first()
+        artifact.type == 'tar'
+        artifact.classifier == 'foo'
     }
 
     def "from(project) creates a base-image bucket and a reference-requesting resolvable"() {
@@ -90,10 +112,12 @@ class ContainerImageDependencySpec extends Specification {
         !bucket.canBeConsumed && !bucket.canBeResolved && bucket.canBeDeclared
         bucket.dependencies.find { it.group == 'com.example' && it.name == 'base' } != null
 
-        and:
+        and: 'the request pins imageType=reference but carries no ecosystem fence'
         def resolvable = project.configurations.getByName('appBaseImageRefsBASEIMAGE')
         resolvable.canBeResolved && !resolvable.canBeConsumed
-        resolvable.attributes.getAttribute(ContainerAttributes.IMAGE_TYPE) == ContainerAttributes.IMAGE_TYPE_REFERENCE
+        resolvable.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_TYPE_KEY)) ==
+                ContainerAttributes.IMAGE_TYPE_REFERENCE
+        resolvable.attributes.getAttribute(ArtifactsAttributes.ECOSYSTEM) == null
     }
 
     def "multiple images coexist with distinct imageName attributes and a sibling FROM is wired"() {
@@ -113,9 +137,9 @@ class ContainerImageDependencySpec extends Specification {
 
         then: 'both images produce non-colliding consumables with their own imageName'
         project.configurations.getByName('baseReferenceElements')
-                .attributes.getAttribute(ContainerAttributes.IMAGE_NAME) == 'base'
+                .attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_NAME_KEY)) == 'base'
         project.configurations.getByName('appReferenceElements')
-                .attributes.getAttribute(ContainerAttributes.IMAGE_NAME) == 'app'
+                .attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_NAME_KEY)) == 'app'
 
         and: 'the sibling FROM is recorded on the build task without a self-project configuration'
         def buildApp = project.tasks.getByName('buildAppImage')

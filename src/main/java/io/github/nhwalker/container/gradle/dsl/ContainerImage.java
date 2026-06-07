@@ -1,5 +1,7 @@
 package io.github.nhwalker.container.gradle.dsl;
 
+import java.util.Map;
+
 import javax.inject.Inject;
 
 import org.gradle.api.Named;
@@ -14,7 +16,8 @@ import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 
-import io.github.nhwalker.container.gradle.dependency.ContainerDependencies;
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
 
 /**
  * A single image declared in the {@code container { images { } }} container.
@@ -124,10 +127,18 @@ public abstract class ContainerImage implements Named {
     public void from(String buildArgName, Object dependencyNotation, String imageName) {
         String token = capitalize(sanitize(buildArgName));
         NamedDomainObjectProvider<DependencyScopeConfiguration> bucket =
-                ContainerDependencies.baseImageBucket(project, name + "BaseImageDep" + token);
+                ArtifactsDependencies.dependencyBucket(project, name + "BaseImageDep" + token);
         project.getDependencies().add(bucket.getName(), dependencyNotation);
+
+        // Select a reference variant: pin imageType=reference (and imageName when choosing
+        // one image out of several). No classifier and no ecosystem fence, so the request
+        // also resolves cleanly across projects and composite builds.
+        Map<String, String> request = imageName == null
+                ? Map.of(ContainerAttributes.IMAGE_TYPE_KEY, ContainerAttributes.IMAGE_TYPE_REFERENCE)
+                : Map.of(ContainerAttributes.IMAGE_TYPE_KEY, ContainerAttributes.IMAGE_TYPE_REFERENCE,
+                        ContainerAttributes.IMAGE_NAME_KEY, imageName);
         NamedDomainObjectProvider<ResolvableConfiguration> resolvable =
-                ContainerDependencies.resolvableReferences(project, name + "BaseImageRefs" + token, bucket, imageName);
+                ArtifactsDependencies.resolvable(project, name + "BaseImageRefs" + token, bucket, null, request);
 
         BaseImageReference ref = objects.newInstance(BaseImageReference.class);
         ref.getArgName().set(buildArgName);

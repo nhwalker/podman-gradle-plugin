@@ -1,64 +1,65 @@
 package io.github.nhwalker.container.gradle.dependency;
 
-import org.gradle.api.attributes.Attribute;
+import org.gradle.api.attributes.AttributeDisambiguationRule;
+import org.gradle.api.attributes.MultipleCandidatesDetails;
+
+import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes;
 
 /**
- * The custom Gradle {@link Attribute}s used to describe container image variants in
- * variant-aware dependency resolution, plus their well-known values.
+ * The well-known attribute keys and values describing container image variants, plus
+ * the disambiguation rule that defaults an unspecified archive format.
  *
- * <p>These live in a dedicated namespace (rather than reusing the JVM
- * {@code Usage}/{@code Category}/{@code LibraryElements} attributes) so container
- * image variants can never accidentally match Java ecosystem variants. The
- * {@link #ECOSYSTEM} attribute, required on every container variant and request, is
- * the structural fence: no JVM variant declares it.
+ * <p>Container images are published and consumed as <em>generic artifacts</em> (see
+ * {@link io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies}): module
+ * <em>identity</em> stays at the Gradle project's implicit {@code group:name} coordinate
+ * (its default capability), the required {@link ArtifactsAttributes#ECOSYSTEM
+ * ecosystem=generic-artifact} marker fences the variants off from the JVM ecosystem, and
+ * the {@link ArtifactsAttributes#CLASSIFIER classifier} attribute (defaulting each
+ * variant's Maven classifier too) plus the free String attributes below refine
+ * <em>which image</em> ({@link #IMAGE_NAME_KEY}) and <em>which form</em>
+ * ({@link #IMAGE_TYPE_KEY}/{@link #ARCHIVE_FORMAT_KEY}) a request selects.
  *
- * <p>Module <em>identity</em> stays at the Gradle project's implicit
- * {@code group:name} coordinate (its default capability); <em>which image</em>
- * inside a module is chosen by {@link #IMAGE_NAME} and <em>which form</em> by
- * {@link #IMAGE_TYPE}/{@link #ARCHIVE_FORMAT} — the same "one module, several
- * classifier/attribute-selected variants" pattern the Java plugin uses for its
- * sources and javadoc jars.
+ * <p>The keys keep the {@code io.github.nhwalker.container.*} namespace so they never
+ * collide with the generic core attributes and so a published module's Gradle Module
+ * Metadata advertises stable, container-specific attribute names.
  */
 public final class ContainerAttributes {
 
     private ContainerAttributes() {
     }
 
-    /**
-     * Isolation marker carried by every container variant and every container request.
-     * Its sole value is {@link #ECOSYSTEM_VALUE}.
-     */
-    public static final Attribute<String> ECOSYSTEM =
-            Attribute.of("io.github.nhwalker.container.ecosystem", String.class);
+    /** Free-attribute key selecting which image (by name) within a module that publishes several. */
+    public static final String IMAGE_NAME_KEY = "io.github.nhwalker.container.imageName";
 
-    /** Selects which image (by name) within a module that publishes several. */
-    public static final Attribute<String> IMAGE_NAME =
-            Attribute.of("io.github.nhwalker.container.imageName", String.class);
+    /** Free-attribute key distinguishing the lightweight reference from the exported archive. */
+    public static final String IMAGE_TYPE_KEY = "io.github.nhwalker.container.imageType";
 
-    /** Distinguishes the lightweight reference from the exported archive. */
-    public static final Attribute<String> IMAGE_TYPE =
-            Attribute.of("io.github.nhwalker.container.imageType", String.class);
+    /** Free-attribute key for the archive container format; set only on archive variants. */
+    public static final String ARCHIVE_FORMAT_KEY = "io.github.nhwalker.container.archiveFormat";
 
-    /** The archive container format; only set on {@link #IMAGE_TYPE_ARCHIVE} variants. */
-    public static final Attribute<String> ARCHIVE_FORMAT =
-            Attribute.of("io.github.nhwalker.container.archiveFormat", String.class);
-
-    /** Optional target platform, e.g. {@code linux/amd64}; set only when specified. */
-    public static final Attribute<String> PLATFORM =
-            Attribute.of("io.github.nhwalker.container.platform", String.class);
-
-    /** The only valid value of {@link #ECOSYSTEM}. */
-    public static final String ECOSYSTEM_VALUE = "container-image";
-
-    /** {@link #IMAGE_TYPE} value for the image reference (coordinate pointer). */
+    /** {@link #IMAGE_TYPE_KEY} value for the image reference (coordinate pointer). */
     public static final String IMAGE_TYPE_REFERENCE = "reference";
 
-    /** {@link #IMAGE_TYPE} value for the exported archive (tar bytes). */
+    /** {@link #IMAGE_TYPE_KEY} value for the exported archive (tar bytes). */
     public static final String IMAGE_TYPE_ARCHIVE = "archive";
 
-    /** {@link #ARCHIVE_FORMAT} value for an OCI archive. */
+    /** {@link #ARCHIVE_FORMAT_KEY} value for an OCI archive. */
     public static final String ARCHIVE_FORMAT_OCI = "oci-archive";
 
-    /** {@link #ARCHIVE_FORMAT} value for a docker archive. */
+    /** {@link #ARCHIVE_FORMAT_KEY} value for a docker archive. */
     public static final String ARCHIVE_FORMAT_DOCKER = "docker-archive";
+
+    /**
+     * When the consumer does not request an {@code archiveFormat}, default to
+     * {@code oci-archive} if it is among the candidates.
+     */
+    public static final class ArchiveFormatDefaultRule implements AttributeDisambiguationRule<String> {
+        @Override
+        public void execute(MultipleCandidatesDetails<String> details) {
+            if (details.getConsumerValue() == null
+                    && details.getCandidateValues().contains(ARCHIVE_FORMAT_OCI)) {
+                details.closestMatch(ARCHIVE_FORMAT_OCI);
+            }
+        }
+    }
 }
