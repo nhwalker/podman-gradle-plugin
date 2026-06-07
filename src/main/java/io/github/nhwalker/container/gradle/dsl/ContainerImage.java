@@ -170,8 +170,8 @@ public abstract class ContainerImage implements Named {
 
     /**
      * Exposes this image's resolved reference on the {@code main} source set's generated
-     * {@code <ProjectName>Images} interface. Requires the extension's {@code generateReferences}
-     * switch. See {@link #javaReference(String)}.
+     * {@code <ProjectName>Images} interface. The interface is generated when at least one image opts
+     * in and the {@code java} plugin is applied. See {@link #javaReference(String)}.
      */
     public void javaReference() {
         javaReference(SourceSet.MAIN_SOURCE_SET_NAME);
@@ -185,7 +185,8 @@ public abstract class ContainerImage implements Named {
      * image's reference file, so the interface's source set compiles only after the image is built and
      * inspected; this scopes the container-engine dependency to that source set (e.g.
      * {@code javaReference('test')} keeps {@code compileJava}/{@code jar} independent of the engine).
-     * Opt-in, and only realized when the extension's {@code generateReferences} is enabled.
+     * Opt-in; the interface is generated when at least one image opts in and the {@code java} plugin
+     * is applied.
      */
     public void javaReference(String sourceSetName) {
         javaReferenceSourceSets.add(sourceSetName);

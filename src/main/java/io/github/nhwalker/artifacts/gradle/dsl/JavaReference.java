@@ -29,7 +29,6 @@ import org.gradle.api.provider.Property;
  *
  * <pre>
  * genericArtifacts {
- *     generateReferences = true
  *     references {
  *         apiBaseUrl    { value = 'https://api.example.com' }   // -> API_BASE_URL
  *         schemaVersion { value 'v3' }                          // -> SCHEMA_VERSION
@@ -45,7 +44,6 @@ import org.gradle.api.provider.Property;
  *
  * <pre>
  * genericArtifacts {
- *     generateReferences = true
  *     consume    { appRef   { from project(':app'); classifier = 'app-reference' } }
  *     references { appImage { fromFile genericArtifacts.consume.appRef.files } }
  * }

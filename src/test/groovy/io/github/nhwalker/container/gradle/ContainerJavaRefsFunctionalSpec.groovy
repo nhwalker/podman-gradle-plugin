@@ -8,7 +8,7 @@ import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
  * Functional tests for the generated {@code <ProjectName>Images} interface: it is produced when a
- * Java plugin is applied, {@code generateReferences} is enabled, and an image opts in via
+ * Java plugin is applied and an image opts in via
  * {@code javaReference(...)}. Each opted-in image's constant carries the digest-pinned reference read
  * from its reference file, the interface is compiled as part of the chosen source set, and the
  * container-engine dependency is scoped to that source set.
@@ -48,7 +48,6 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 images {
                     app { tags = ['example/app:1.0', 'example/app:latest']; javaReference() }
                     webServer { tags = ['example/web:2.0']; javaReference() }
@@ -82,7 +81,6 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 images { app { tags = ['example/app:1.0']; javaReference() } }
             }
         """
@@ -111,7 +109,6 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 images {
                     app   { tags = ['example/app:1.0'];   javaReference() }
                     other { tags = ['example/other:1.0'] }   // no javaReference()
@@ -138,7 +135,6 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 images { itBase { tags = ['example/it-base:1.0']; javaReference('test') } }
             }
         """
@@ -172,7 +168,6 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 images { app { tags = ['example/app:1.0']; javaReference() } }
             }
         """
@@ -191,21 +186,21 @@ exit 0
         new File(dir, '.classpath').text.contains('build/generated/sources/containerImageRefs/java/main')
     }
 
-    def "no interface is generated unless generateReferences is enabled"() {
+    def "no interface is generated when no image opts in"() {
         given:
         buildFile << """
             plugins { id 'java'; id 'io.github.nhwalker.container' }
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                images { app { tags = ['example/app:1.0']; javaReference() } }   // opt-in but switch off
+                images { app { tags = ['example/app:1.0'] } }   // no javaReference()
             }
         """
 
         when:
         def result = runner('buildAppImage').build()
 
-        then: 'the generation task is never registered'
+        then: 'with nothing opted in, the generation task is never registered'
         result.task(':buildAppImage').outcome == SUCCESS
         result.task(':generateImageReferences') == null
         !new File(dir, 'build/generated/sources/containerImageRefs').exists()
@@ -218,7 +213,6 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 images { app { tags = ['example/app:1.0']; javaReference() } }
             }
         """
@@ -240,11 +234,9 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 images { app { tags = ['example/app:1.0']; javaReference() } }
             }
             genericArtifacts {
-                generateReferences = true
                 references { apiBaseUrl { value = 'https://api.example.com' } }
             }
         """
@@ -278,7 +270,6 @@ exit 0
             group = 'com.example'
             container {
                 executable = '${fakeBin.absolutePath}'
-                generateReferences = true
                 referencesClassName = 'MyImages'
                 images { app { tags = ['example/app:1.0']; javaReference() } }
             }
@@ -303,7 +294,6 @@ exit 0
                 images { app { tags = ['example/app:1.0'] } }   // includeDigest defaults to true
             }
             genericArtifacts {
-                generateReferences = true
                 consume    { appRef   { from project(':'); classifier = 'app-reference' } }
                 references { appImage { fromFile genericArtifacts.consume.appRef.files } }
             }

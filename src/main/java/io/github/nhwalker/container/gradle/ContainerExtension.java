@@ -60,20 +60,16 @@ public abstract class ContainerExtension {
     public abstract Property<String> getConnection();
 
     /**
-     * When {@code true} and a Java plugin is applied, the plugin generates, per source set, a
-     * {@code <ProjectName>Images[<SourceSet>]} Java interface exposing the resolved reference of each
-     * image that opts in via
+     * The package the generated {@code <ProjectName>Images} interface(s) are placed into.
+     * Defaults to the project group; when blank the default package is used.
+     *
+     * <p>The interface is generated, per source set, whenever an image opts in via
      * {@link io.github.nhwalker.container.gradle.dsl.ContainerImage#javaReference() javaReference(...)}
-     * as a {@code public static final String} constant named after the image in UPPER_SNAKE_CASE. The
+     * and the {@code java} plugin is applied. Each opted-in image contributes a
+     * {@code public static final String} constant (named after the image in UPPER_SNAKE_CASE) whose
      * value is read from the image's reference file (its {@code name:tag}, digest-pinned when that
      * image's {@code includeDigest} is on), so generating the interface builds and inspects the
-     * opted-in images. Defaults to {@code false}.
-     */
-    public abstract Property<Boolean> getGenerateReferences();
-
-    /**
-     * The package the generated {@code <ProjectName>Images} interfaces are placed into.
-     * Defaults to the project group; when blank the default package is used.
+     * opted-in images.
      */
     public abstract Property<String> getReferencesPackage();
 

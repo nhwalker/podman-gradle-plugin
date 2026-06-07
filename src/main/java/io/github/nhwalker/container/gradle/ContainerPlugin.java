@@ -88,7 +88,6 @@ public class ContainerPlugin implements Plugin<Project> {
         ContainerExtension extension = project.getExtensions()
                 .create(EXTENSION_NAME, ContainerExtension.class);
         extension.getExecutable().convention("podman");
-        extension.getGenerateReferences().convention(false);
         extension.getReferencesPackage().convention(
                 project.provider(() -> String.valueOf(project.getGroup())));
         extension.getReferencesClassName().convention(project.provider(() ->
@@ -123,9 +122,9 @@ public class ContainerPlugin implements Plugin<Project> {
             Map<String, TaskProvider<ContainerImageReferenceTask>> referenceTasks = new LinkedHashMap<>();
             extension.getImages().forEach(image ->
                     referenceTasks.put(image.getName(), registerImage(p, image, component)));
-            // When a Java plugin is applied and the user opted in, expose each opted-in image's
-            // reference to Java code through a generated interface (per target source set).
-            if (extension.getGenerateReferences().get() && p.getPluginManager().hasPlugin("java")) {
+            // When a Java plugin is applied, expose each opted-in image's reference to Java code
+            // through a generated interface (per target source set). No-ops when nothing opted in.
+            if (p.getPluginManager().hasPlugin("java")) {
                 registerReferences(p, extension, referenceTasks);
             }
         });

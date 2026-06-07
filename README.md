@@ -659,9 +659,9 @@ includeBuild '../platform'
 container { images { app { from 'BASE_IMAGE', 'com.example:platform:1.0', 'runtime' } } }
 ```
 
-### Exposing image coordinates to Java (`generateReferences`)
+### Exposing image coordinates to Java (`javaReference`)
 
-When a Java plugin is applied and `generateReferences = true`, the plugin generates, per source set,
+When a Java plugin is applied, the plugin generates, per source set,
 a `<ProjectName>Images[<SourceSet>]` interface holding the resolved reference of each image that
 **opts in** with `javaReference(...)` as a `public static final String` constant. The constant name
 is the image name in `UPPER_SNAKE_CASE`; its value is the image's reference-file contents — the
@@ -680,7 +680,6 @@ plugins { id 'java'; id 'io.github.nhwalker.container' }
 group = 'com.example'                    // becomes the generated package
 
 container {
-    generateReferences = true
     // referencesPackage = 'com.example.images'   // override (defaults to project group)
     // referencesClassName = 'MyImages'           // override the interface name (default <ProjectName>Images)
     images {
@@ -692,7 +691,7 @@ container {
 ```
 
 Under the hood this is the same artifact-agnostic `GenerateReferencesTask` the helm and
-generic-artifacts plugins use, fed each image's reference-file contents — so `generateReferences` is
+generic-artifacts plugins use, fed each image's reference-file contents — so `javaReference()` is
 the built-in convenience that captures this project's own images, the same way
 [`references` / `fromFile`](#capturing-a-files-contents-fromfile) captures another project's.
 
@@ -863,7 +862,7 @@ as `importResourcesTask('test')` to target another) — so the chart ships in th
 that path *and* appears as a resource source folder (available when running inside the
 IDE).
 
-Setting `generateReferences = true` additionally generates a `<ProjectName>Charts`
+Bundling a chart additionally generates a `<ProjectName>Charts`
 interface holding each bundled chart's classpath resource path as a
 `public static final String` constant (the constant name is the chart name in
 `UPPER_SNAKE_CASE`), added to the source set the chart was bundled into so it compiles
@@ -879,7 +878,6 @@ plugins { id 'java'; id 'io.github.nhwalker.helm' }
 group = 'com.example'                    // becomes the generated package
 
 helm {
-    generateReferences = true
     // referencesPackage = 'com.example.charts'   // override (defaults to project group)
     // referencesClassName = 'MyCharts'           // override the interface name (default <ProjectName>Charts)
     charts {
@@ -1030,7 +1028,7 @@ source set's resources (the `main` source set by default; pass a name such as
 the eclipse classpath. The copy-spec `Action` overload places files under a subdirectory,
 e.g. `importResourcesTask { into 'reports' }`.
 
-Setting `generateReferences = true` additionally generates a `<ProjectName>References`
+Bundling an artifact additionally generates a `<ProjectName>References`
 interface holding each bundled artifact's classpath resource path as a
 `public static final String` constant (named after the element in `UPPER_SNAKE_CASE`),
 compiled with the source set it was bundled into (artifacts bundled into a non-`main`
@@ -1043,7 +1041,6 @@ plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
 group = 'com.example'
 
 genericArtifacts {
-    generateReferences = true
     // referencesPackage = 'com.example'        // override (defaults to project group)
     // referencesClassName = 'MyRefs'           // override the interface name (default <ProjectName>References)
     produce {
@@ -1074,8 +1071,7 @@ plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
 group = 'com.example'
 
 genericArtifacts {
-    generateReferences = true                  // the single switch for the interface
-    references {
+    references {                                // declaring any reference generates the interface
         apiBaseUrl    { value = 'https://api.example.com' }   // -> FixtureReferences.API_BASE_URL
         schemaVersion { value 'v3' }                          // -> FixtureReferences.SCHEMA_VERSION
     }
@@ -1085,7 +1081,7 @@ genericArtifacts {
 }
 ```
 
-This is the generic counterpart of the container plugin's `generateReferences`, which puts each
+This is the generic counterpart of the container plugin's `javaReference()`, which puts each
 opted-in image's reference (its digest-pinned coordinate, read from the reference file) into its
 `<ProjectName>Images` interface — both flow through the same `GenerateReferencesTask`. Each plugin
 generates its own domain-named interface (`Images`/`Charts`/`References`), so the three are
@@ -1110,7 +1106,6 @@ plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
 group = 'com.example'
 
 genericArtifacts {
-    generateReferences = true
     consume    { appRef   { from project(':app'); classifier = 'app-reference' } }
     references { appImage { fromFile genericArtifacts.consume.appRef.files } }
 }

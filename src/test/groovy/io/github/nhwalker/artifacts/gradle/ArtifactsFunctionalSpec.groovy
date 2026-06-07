@@ -491,7 +491,7 @@ class ArtifactsFunctionalSpec extends Specification {
         new ZipFile(new File(dir, 'build/libs/prod.jar')).withCloseable { it.getEntry('report.txt') != null }
     }
 
-    def "generateReferences exposes the bundled produced artifact's resource path"() {
+    def "bundling a produced artifact exposes its resource path on the interface"() {
         given:
         new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
         new File(dir, 'build.gradle') << """
@@ -500,7 +500,6 @@ class ArtifactsFunctionalSpec extends Specification {
             def reportFile = layout.buildDirectory.file('report.txt')
             def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
             genericArtifacts {
-                generateReferences = true
                 referencesPackage = 'com.example'
                 produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask { into 'reports' } } }
             }
@@ -528,7 +527,6 @@ class ArtifactsFunctionalSpec extends Specification {
             plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
             group = 'com.example'
             genericArtifacts {
-                generateReferences = true
                 references {
                     apiBaseUrl    { value = 'https://api.example.com' }
                     schemaVersion { value 'v3' }
@@ -559,7 +557,6 @@ class ArtifactsFunctionalSpec extends Specification {
             def reportFile = layout.buildDirectory.file('report.txt')
             def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
             genericArtifacts {
-                generateReferences = true
                 produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask() } }
                 references { schemaVersion { value 'v3' } }
             }
@@ -584,7 +581,6 @@ class ArtifactsFunctionalSpec extends Specification {
             plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
             group = 'com.example'
             genericArtifacts {
-                generateReferences = true
                 references          { apiBaseUrl { value = 'https://api.example.com' } }
                 references('test')  { stubUrl    { value = 'http://localhost:8080' } }
             }
@@ -612,11 +608,11 @@ class ArtifactsFunctionalSpec extends Specification {
         !test.contains('API_BASE_URL')
     }
 
-    def "references need generateReferences enabled to be generated"() {
+    def "references are not generated without the java plugin"() {
         given:
         new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
         new File(dir, 'build.gradle') << """
-            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            plugins { id 'io.github.nhwalker.artifacts' }
             group = 'com.example'
             genericArtifacts {
                 references { schemaVersion { value 'v3' } }
@@ -626,7 +622,7 @@ class ArtifactsFunctionalSpec extends Specification {
         when:
         def result = runner(dir, 'tasks').build()
 
-        then: 'without the switch no generation task is registered'
+        then: 'with no java source set to compile into, no generation task or interface exists'
         result.task(':generateArtifactReferences') == null
         !new File(dir, 'build/generated/sources/genericArtifactRefs').exists()
     }
@@ -638,7 +634,6 @@ class ArtifactsFunctionalSpec extends Specification {
             plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
             group = 'com.example'
             genericArtifacts {
-                generateReferences = true
                 referencesClassName = 'MyRefs'
                 references          { apiBaseUrl { value = 'https://api.example.com' } }
                 references('test')  { stubUrl    { value = 'http://localhost:8080' } }
@@ -665,7 +660,6 @@ class ArtifactsFunctionalSpec extends Specification {
             def ref = layout.buildDirectory.file('ref.txt')
             def writeRef = tasks.register('writeRef') { outputs.file(ref); doLast { ref.get().asFile.text = 'example/app:1.0\\n' } }
             genericArtifacts {
-                generateReferences = true
                 references { appImage { fromFile writeRef.map { ref.get() } } }
             }
         """
@@ -689,7 +683,6 @@ class ArtifactsFunctionalSpec extends Specification {
             def doc = layout.buildDirectory.file('doc.txt')
             def writeDoc = tasks.register('writeDoc') { outputs.file(doc); doLast { doc.get().asFile.text = '  line1\\nline2\\n' } }
             genericArtifacts {
-                generateReferences = true
                 references { motd { fromFile writeDoc.map { doc.get() } } }
             }
             application { mainClass = 'com.example.Check' }
@@ -736,7 +729,6 @@ class ArtifactsFunctionalSpec extends Specification {
             plugins { id 'java'; id 'application'; id 'io.github.nhwalker.artifacts' }
             group = 'com.example'
             genericArtifacts {
-                generateReferences = true
                 references { app { value 'example/app:1.0' } }
             }
             application { mainClass = 'com.example.Check' }
