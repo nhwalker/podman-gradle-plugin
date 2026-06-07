@@ -4,6 +4,7 @@ import javax.inject.Inject;
 
 import org.gradle.api.Action;
 import org.gradle.api.NamedDomainObjectContainer;
+import org.gradle.api.Project;
 import org.gradle.api.model.ObjectFactory;
 
 import io.github.nhwalker.artifacts.gradle.dsl.ConsumedArtifact;
@@ -33,11 +34,12 @@ public abstract class ArtifactsExtension {
     private final NamedDomainObjectContainer<ConsumedArtifact> consume;
 
     @Inject
-    public ArtifactsExtension(ObjectFactory objects) {
+    public ArtifactsExtension(ObjectFactory objects, Project project) {
         this.produce = objects.domainObjectContainer(ProducedArtifact.class,
                 name -> objects.newInstance(ProducedArtifact.class, name));
+        // ConsumedArtifact needs the Project to register its download/unpack staging tasks.
         this.consume = objects.domainObjectContainer(ConsumedArtifact.class,
-                name -> objects.newInstance(ConsumedArtifact.class, name));
+                name -> objects.newInstance(ConsumedArtifact.class, name, project));
     }
 
     /** The classified artifacts this project publishes. */

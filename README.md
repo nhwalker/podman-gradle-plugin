@@ -1030,6 +1030,72 @@ other project's variants (via their attributes), while keeping composite-build s
 | Another project's default artifact (main jar) | no attributes | falls back to the conventional default |
 | Plain Maven-repo artifact (incl. sources jars) | classifier in the `from` notation (`:sources@jar`) | artifact-only; repo-only |
 
+#### Staging resolved files on disk (`downloadTask` / `unpackTask`)
+
+Often you just want the resolved artifact materialized in a directory. Each `consume`
+entry can register a `Sync` task for that, defaulting the destination to
+`build/inputs/<name>`:
+
+- **`downloadTask`** — copies the resolved file(s) into the directory.
+- **`unpackTask`** — extracts the resolved zip/tar archive(s) into the directory (the
+  format is detected per file by extension).
+
+The `{ }` closure configures the underlying `Sync` task — change the destination with
+`into`, add `dependsOn`, etc. — and the method returns the `TaskProvider` so other tasks
+can depend on it. The producing task is wired automatically, so the artifact is built/
+resolved before staging.
+
+```groovy
+genericArtifacts {
+    consume {
+        theReport {
+            from 'com.example:platform:1.0'; classifier = 'report'
+            downloadTask()                                   // → build/inputs/theReport/
+        }
+        theDist {
+            from 'com.example:app:1.0'; classifier = 'dist'
+            unpackTask { into layout.buildDirectory.dir('app') }   // extract elsewhere
+        }
+    }
+}
+
+// returned TaskProvider, or wire the other way round inside the closure:
+tasks.named('assembleSite') { dependsOn genericArtifacts.consume.theReport.downloadTask() }
+```
+
+Both methods are **idempotent**: the first call registers the task, and the no-arg
+`downloadTask()` / `unpackTask()` thereafter return the *same* `TaskProvider` without
+reconfiguring — so the accessor itself is the handle other tasks depend on, and it's safe
+to call from inside another task's configuration block. Because a task is a file collection
+of its outputs, consuming that output wires the dependency automatically (no `dependsOn`
+needed):
+
+```groovy
+genericArtifacts {
+    consume {
+        theReport { from 'com.example:platform:1.0'; classifier = 'report'; downloadTask() }
+    }
+}
+
+// BEST — consume the staged output; the dependency on downloadTheReport is inferred
+tasks.register('publishSite', Copy) {
+    from genericArtifacts.consume.theReport.downloadTask()
+    into layout.buildDirectory.dir('site')
+}
+
+// typed DirectoryProperty input (also carries the dependency)
+tasks.register('process', MyTask) {
+    inputDir.fileProvider(genericArtifacts.consume.theReport.downloadTask().map { it.destinationDir })
+}
+
+// pure ordering, when the task doesn't take the files as input
+tasks.named('check') { dependsOn genericArtifacts.consume.theReport.downloadTask() }
+```
+
+Use the `downloadTask { … }` / `unpackTask { … }` overload (with a closure) to configure
+the `Sync` from a normal context such as the `consume` block; use the no-arg form as the
+handle elsewhere.
+
 ### Composite builds
 
 Because identity is the project coordinate and selection is an attribute, an included
