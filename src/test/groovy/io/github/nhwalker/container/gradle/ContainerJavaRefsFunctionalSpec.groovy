@@ -206,4 +206,33 @@ exit 0
         new File(dir, 'build/generated/sources/containerImageRefs/java/main/com/example/MyImages.java')
                 .text.contains('public interface MyImages')
     }
+
+    def "a generic reference captures a container image reference via fromFile"() {
+        given: 'the container plugin publishes the image reference; the artifacts plugin consumes it'
+        buildFile << """
+            plugins { id 'java'; id 'io.github.nhwalker.container'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            container {
+                executable = '${fakeBin.absolutePath}'
+                images { app { tags = ['example/app:1.0']; includeDigest = false } }
+            }
+            genericArtifacts {
+                generateReferences = true
+                consume    { appRef   { from project(':'); classifier = 'app-reference' } }
+                references { appImage { fromFile genericArtifacts.consume.appRef.files } }
+            }
+        """
+
+        when:
+        def result = runner('generateArtifactReferences').build()
+
+        then: 'building the image and writing its reference are wired ahead of generation'
+        result.task(':buildAppImage').outcome == SUCCESS
+        result.task(':writeAppImageReference').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+
+        and: 'the published reference contents land in the generated constant'
+        new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+                .text.contains('public static final String APP_IMAGE = "example/app:1.0";')
+    }
 }

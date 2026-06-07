@@ -128,6 +128,8 @@ public abstract class ArtifactsExtension {
      */
     public void references(String sourceSetName, Action<? super NamedDomainObjectContainer<JavaReference>> action) {
         action.execute(references.computeIfAbsent(sourceSetName,
-                name -> objects.domainObjectContainer(JavaReference.class)));
+                // Custom factory so JavaReference's ObjectFactory is injected (it needs one for fromFile).
+                name -> objects.domainObjectContainer(JavaReference.class,
+                        elementName -> objects.newInstance(JavaReference.class, elementName))));
     }
 }

@@ -656,6 +656,73 @@ class ArtifactsFunctionalSpec extends Specification {
                 .text.contains('public interface MyRefsTest ')
     }
 
+    def "fromFile captures a single-line file's contents as a normal string constant"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def ref = layout.buildDirectory.file('ref.txt')
+            def writeRef = tasks.register('writeRef') { outputs.file(ref); doLast { ref.get().asFile.text = 'example/app:1.0\\n' } }
+            genericArtifacts {
+                generateReferences = true
+                references { appImage { fromFile writeRef.map { ref.get() } } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'the producing task is wired ahead of generation and the trimmed contents become the value'
+        result.task(':writeRef').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        new File(dir, 'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java')
+                .text.contains('public static final String APP_IMAGE = "example/app:1.0";')
+    }
+
+    def "fromFile renders a multi-line document as a Java text block with the exact value"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'application'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def doc = layout.buildDirectory.file('doc.txt')
+            def writeDoc = tasks.register('writeDoc') { outputs.file(doc); doLast { doc.get().asFile.text = '  line1\\nline2\\n' } }
+            genericArtifacts {
+                generateReferences = true
+                references { motd { fromFile writeDoc.map { doc.get() } } }
+            }
+            application { mainClass = 'com.example.Check' }
+        """
+        def src = new File(dir, 'src/main/java/com/example/Check.java')
+        src.parentFile.mkdirs()
+        // The static method ref captures no Project; a runtime equality check proves the text block
+        // reproduces the document exactly (leading indentation kept, single trailing newline dropped).
+        src << '''
+            package com.example;
+            public class Check {
+                public static void main(String[] args) {
+                    if (!FixtureReferences.MOTD.equals("  line1\\nline2")) {
+                        throw new AssertionError("unexpected value: [" + FixtureReferences.MOTD + "]");
+                    }
+                }
+            }
+        '''
+
+        when: 'running compiles the generated interface and asserts its value'
+        def result = runner(dir, 'run').build()
+
+        then:
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        result.task(':run').outcome == SUCCESS
+
+        and: 'the generated source uses a text block, not an escaped one-liner'
+        def generated = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+        generated.contains('public static final String MOTD = """')
+        !generated.contains('\\nline2')
+    }
+
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {
         given: 'a standalone producer build addressed by group:name'
         def cp = pluginClasspathFilesLiteral()

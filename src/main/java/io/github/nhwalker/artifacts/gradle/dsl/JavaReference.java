@@ -1,8 +1,20 @@
 package io.github.nhwalker.artifacts.gradle.dsl;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
 import javax.inject.Inject;
 
 import org.gradle.api.Named;
+import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.FileSystemLocation;
+import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.Property;
 
 /**
@@ -25,16 +37,32 @@ import org.gradle.api.provider.Property;
  * }
  * </pre>
  *
+ * <p>{@link #fromFile(Object)} instead captures the <em>contents</em> of a text file as the value —
+ * for example the image-reference file the container plugin publishes, or any other text document.
+ * A multi-line document is emitted as a Java text block. The motivating use is capturing a built
+ * image's coordinate from another project, paired with a {@code consume} declaration that resolves
+ * the published reference artifact:
+ *
+ * <pre>
+ * genericArtifacts {
+ *     generateReferences = true
+ *     consume    { appRef   { from project(':app'); classifier = 'app-reference' } }
+ *     references { appImage { fromFile genericArtifacts.consume.appRef.files } }
+ * }
+ * </pre>
+ *
  * <p>The value is a lazy {@link Property}, so it may be set from a provider (e.g. a task output or
  * another project's resolved coordinate) and is only realized when the interface is generated.
  */
 public abstract class JavaReference implements Named {
 
     private final String name;
+    private final ObjectFactory objects;
 
     @Inject
-    public JavaReference(String name) {
+    public JavaReference(String name, ObjectFactory objects) {
         this.name = name;
+        this.objects = objects;
     }
 
     @Override
@@ -51,5 +79,51 @@ public abstract class JavaReference implements Named {
     /** Sets the constant's {@link #getValue() value}. */
     public void value(String value) {
         getValue().set(value);
+    }
+
+    /**
+     * Captures the text contents of a single file as this constant's {@link #getValue() value},
+     * reading it lazily when the interface is generated. {@code notation} is anything a
+     * {@code FileCollection} accepts — a {@code Provider<RegularFile>}, a {@code File}, a task
+     * output, or another element's resolved {@code files} (e.g. {@code consume.<name>.files}) — and
+     * its build dependencies are carried, so the producing/resolving task runs first. The collection
+     * must resolve to exactly one file. A single trailing line terminator is dropped (text files
+     * conventionally end with one); any remaining line breaks are preserved and rendered as a Java
+     * text block in the generated source.
+     */
+    public void fromFile(Object notation) {
+        ConfigurableFileCollection files = objects.fileCollection();
+        files.from(notation);
+        // getElements() carries the notation's build dependencies; the transform is a static method
+        // reference (capturing no Project), so the value stays configuration-cache friendly.
+        getValue().set(files.getElements().map(JavaReference::readSingleFileText));
+    }
+
+    private static String readSingleFileText(Set<? extends FileSystemLocation> locations) {
+        List<File> regularFiles = new ArrayList<>();
+        for (FileSystemLocation location : locations) {
+            File file = location.getAsFile();
+            if (file.isFile()) {
+                regularFiles.add(file);
+            }
+        }
+        if (regularFiles.size() != 1) {
+            throw new IllegalStateException(
+                    "fromFile expected exactly one file but resolved " + regularFiles.size()
+                            + ": " + regularFiles);
+        }
+        File file = regularFiles.get(0);
+        try {
+            String text = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+            if (text.endsWith("\r\n")) {
+                return text.substring(0, text.length() - 2);
+            }
+            if (text.endsWith("\n")) {
+                return text.substring(0, text.length() - 1);
+            }
+            return text;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read reference file " + file, e);
+        }
     }
 }

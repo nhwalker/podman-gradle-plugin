@@ -24,9 +24,11 @@ import org.gradle.api.tasks.TaskAction;
  *
  * <p>The interface name is taken verbatim from {@link #getClassName()}; each constant's name is
  * the entry key converted to UPPER_SNAKE_CASE (so {@code apiServer} or {@code api-server} become
- * {@code API_SERVER}) and its value is the entry value. Entries are sorted for deterministic,
- * diff-friendly output. The generated source lives under {@link #getOutputDirectory()}, which a
- * plugin typically adds to a Java source set so it is compiled with the project.
+ * {@code API_SERVER}) and its value is the entry value. A single-line value is emitted as a normal
+ * string literal; a multi-line value (e.g. a captured text document) is emitted as a Java text block
+ * that reproduces it exactly. Entries are sorted for deterministic, diff-friendly output. The
+ * generated source lives under {@link #getOutputDirectory()}, which a plugin typically adds to a
+ * Java source set so it is compiled with the project.
  *
  * <p>This task is artifact-agnostic: callers supply the interface name, optional package, the
  * name&rarr;value map (values may be lazily computed providers), and an optional generator note.
@@ -73,9 +75,7 @@ public abstract class GenerateReferencesTask extends DefaultTask {
         source.append("// ").append(note).append("\n");
         source.append("public interface ").append(typeName).append(" {\n");
         for (Map.Entry<String, String> entry : constants.entrySet()) {
-            source.append("    public static final String ")
-                    .append(constantName(entry.getKey()))
-                    .append(" = \"").append(escape(entry.getValue())).append("\";\n");
+            appendConstant(source, constantName(entry.getKey()), entry.getValue());
         }
         source.append("}\n");
 
@@ -167,7 +167,88 @@ public abstract class GenerateReferencesTask extends DefaultTask {
         return result.toString();
     }
 
+    /** Indentation of a text block's content and its closing delimiter (three levels). */
+    private static final String TEXT_BLOCK_INDENT = "            ";
+
+    /**
+     * Emits {@code public static final String <name> = <literal>;}. A single-line value uses a
+     * normal string literal; a value containing a line break uses a Java text block (a "multiline
+     * string"), so captured multi-line documents stay readable in the generated source.
+     */
+    private static void appendConstant(StringBuilder source, String name, String value) {
+        source.append("    public static final String ").append(name).append(" = ");
+        if (value.indexOf('\n') < 0) {
+            source.append('"').append(escape(value)).append("\";\n");
+        } else {
+            appendTextBlock(source, value);
+        }
+    }
+
+    /**
+     * Renders {@code value} as a Java text block reproducing it exactly. The closing delimiter sits
+     * on its own line at {@link #TEXT_BLOCK_INDENT} so it pins the incidental-whitespace stripping
+     * (preserving the document's own leading indentation); a final {@code \} line-continuation drops
+     * the otherwise-added trailing newline when the value does not end in one.
+     */
+    private static void appendTextBlock(StringBuilder source, String value) {
+        source.append("\"\"\"\n");
+        // split(-1) keeps trailing empties so String.join("\n", lines) == value exactly.
+        String[] lines = value.split("\n", -1);
+        boolean trailingNewline = value.endsWith("\n");
+        int contentLines = trailingNewline ? lines.length - 1 : lines.length;
+        for (int i = 0; i < contentLines; i++) {
+            source.append(TEXT_BLOCK_INDENT).append(escapeTextBlockLine(lines[i]));
+            if (i == contentLines - 1 && !trailingNewline) {
+                source.append('\\');
+            }
+            source.append('\n');
+        }
+        source.append(TEXT_BLOCK_INDENT).append("\"\"\";\n");
+    }
+
+    /** Escapes one line for a string literal: backslash, quote and the control characters. */
     private static String escape(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\t' -> sb.append("\\t");
+                case '\r' -> sb.append("\\r");
+                case '\n' -> sb.append("\\n");
+                default -> sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Escapes one content line of a text block: backslash/quote (so no {@code """} can close it
+     * early), tab and carriage return; and converts trailing spaces to {@code \s} so the text
+     * block's per-line trailing-whitespace stripping does not drop them.
+     */
+    private static String escapeTextBlockLine(String line) {
+        StringBuilder sb = new StringBuilder(line.length());
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\t' -> sb.append("\\t");
+                case '\r' -> sb.append("\\r");
+                default -> sb.append(c);
+            }
+        }
+        int end = sb.length();
+        while (end > 0 && sb.charAt(end - 1) == ' ') {
+            end--;
+        }
+        if (end < sb.length()) {
+            int trailingSpaces = sb.length() - end;
+            sb.setLength(end);
+            sb.append("\\s".repeat(trailingSpaces));
+        }
+        return sb.toString();
     }
 }

@@ -1054,6 +1054,35 @@ both flow through the same `GenerateReferencesTask`. Each plugin generates its o
 domain-named interface (`Images`/`Charts`/`References`), so the three are non-colliding and can be
 applied side by side in one project.
 
+##### Capturing a file's contents (`fromFile`)
+
+Instead of a literal `value`, a reference can capture the **contents of a text file** with
+`fromFile(<notation>)`. `notation` is anything a `FileCollection` accepts — a `Provider<RegularFile>`,
+a `File`, a task output, or another element's resolved `files` — and its build dependencies are
+carried, so the producing/resolving task runs first. The file is read lazily when the interface is
+generated; a single trailing newline is dropped, and any remaining line breaks are preserved and
+emitted as a **Java text block** (a multiline string), so multi-line documents stay readable.
+
+The motivating case is capturing a built image's coordinate from another project. The container
+plugin publishes each image's reference as a text artifact (classifier `<image>-reference`); resolve
+it with `consume` and read it with `fromFile`:
+
+```groovy
+plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+group = 'com.example'
+
+genericArtifacts {
+    generateReferences = true
+    consume    { appRef   { from project(':app'); classifier = 'app-reference' } }
+    references { appImage { fromFile genericArtifacts.consume.appRef.files } }
+}
+// -> public static final String APP_IMAGE = "registry.example.com/app:1.0";
+//    (a two-line ref file — coordinate + digest — becomes a """ text block """ instead)
+```
+
+`fromFile` is fully generic: point it at any text document (a generated manifest, a license, a
+descriptor) and its contents land in a Java constant.
+
 #### Application & distribution archives
 
 The `application` and `distribution` plugins do **not** expose their `.zip`/`.tar`
