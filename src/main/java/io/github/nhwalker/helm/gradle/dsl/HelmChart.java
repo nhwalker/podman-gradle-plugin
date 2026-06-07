@@ -4,17 +4,26 @@ import java.util.Map;
 
 import javax.inject.Inject;
 
+import org.gradle.api.Action;
 import org.gradle.api.Named;
 import org.gradle.api.NamedDomainObjectProvider;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.DependencyScopeConfiguration;
 import org.gradle.api.artifacts.ResolvableConfiguration;
 import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.CopySpec;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
+import org.gradle.api.provider.Provider;
+import org.gradle.api.tasks.SourceSet;
+import org.gradle.api.tasks.Sync;
+import org.gradle.api.tasks.TaskProvider;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
+import io.github.nhwalker.helm.gradle.HelmPlugin;
 import io.github.nhwalker.helm.gradle.dependency.HelmAttributes;
 
 /**
@@ -45,6 +54,7 @@ public abstract class HelmChart implements Named {
     private final String name;
     private final Project project;
     private int subchartCounter;
+    private TaskProvider<Sync> resourceBundle;
 
     @Inject
     @SuppressWarnings("this-escape")
@@ -135,7 +145,83 @@ public abstract class HelmChart implements Named {
         from(dependencyNotation);
     }
 
+    // ---- resource bundling ------------------------------------------------------
+
+    /**
+     * Registers (or returns) a {@code Sync} task that bundles this chart's packaged archive into
+     * the {@code main} source set's resources under {@code charts/}, so it ships in the jar. Safe
+     * to call anywhere as a dependency handle.
+     */
+    public TaskProvider<Sync> importResourcesTask() {
+        return importResourcesTask(SourceSet.MAIN_SOURCE_SET_NAME, null);
+    }
+
+    /**
+     * Registers a {@code Sync} task that bundles this chart's packaged archive into the {@code main}
+     * source set's resources. See {@link #importResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importResourcesTask(Action<? super CopySpec> configuration) {
+        return importResourcesTask(SourceSet.MAIN_SOURCE_SET_NAME, configuration);
+    }
+
+    /**
+     * Bundles this chart's packaged archive into the named source set's resources. See
+     * {@link #importResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importResourcesTask(String sourceSetName) {
+        return importResourcesTask(sourceSetName, null);
+    }
+
+    /**
+     * Registers a {@code Sync} task that bundles this chart's packaged archive into the named source
+     * set's resources at {@code charts/<chart>.tgz}, so it is carried in the jar and visible on the
+     * eclipse classpath (the target project must apply the {@code java} plugin). When the
+     * extension's {@code generateReferences} is enabled, this chart contributes a constant to the
+     * generated {@code <ProjectName>Charts} interface. {@code configuration} further configures the
+     * copy spec; the {@code charts/} prefix is applied first.
+     *
+     * <p>The first call registers the task and applies {@code configuration}; later calls return the
+     * same {@code TaskProvider} as an idempotent dependency handle.
+     */
+    public TaskProvider<Sync> importResourcesTask(String sourceSetName, Action<? super CopySpec> configuration) {
+        Provider<Directory> destination = project.getLayout().getBuildDirectory()
+                .dir("generated/resources/helmCharts/" + name + "/" + sourceSetName);
+        Object packagedChart = project.getLayout().getBuildDirectory().file(packagedChartPath(name));
+        Action<CopySpec> placement = spec -> {
+            spec.into("charts");
+            if (configuration != null) {
+                configuration.execute(spec);
+            }
+        };
+        TaskProvider<Sync> task = ResourceImports.register(project, HelmPlugin.TASK_GROUP,
+                importResourcesTaskName(name, sourceSetName),
+                "Bundles the packaged '" + name + "' chart into the '" + sourceSetName + "' resources.",
+                packageTaskName(name), packagedChart, sourceSetName, destination, placement);
+        if (resourceBundle == null) {
+            resourceBundle = task;
+        }
+        return task;
+    }
+
+    /**
+     * The bundling task registered by the first {@link #importResourcesTask} call, or {@code null}
+     * if this chart is not bundled into resources. Read by the plugin to build the references
+     * interface.
+     */
+    public TaskProvider<Sync> getResourceBundle() {
+        return resourceBundle;
+    }
+
     // ---- naming helpers (shared with the plugin reaction) -----------------------
+
+    public static String importResourcesTaskName(String chart, String sourceSetName) {
+        return "import" + capitalize(chart) + sourceSetQualifier(sourceSetName) + "ChartResources";
+    }
+
+    /** Empty for the conventional {@code main} source set, otherwise the capitalized name. */
+    private static String sourceSetQualifier(String sourceSetName) {
+        return SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName) ? "" : capitalize(sourceSetName);
+    }
 
     public static String stageTaskName(String chart) {
         return "stage" + capitalize(chart) + "Chart";

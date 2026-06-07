@@ -4,6 +4,8 @@ import org.gradle.testkit.runner.GradleRunner
 import spock.lang.Specification
 import spock.lang.TempDir
 
+import java.util.zip.ZipFile
+
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 /**
@@ -368,6 +370,155 @@ class ArtifactsFunctionalSpec extends Specification {
         result.task(':producer:distZip').outcome == SUCCESS
         result.task(':consumer:grab').outcome == SUCCESS
         new File(dir, 'consumer/build/out').listFiles().any { it.name.endsWith('.zip') }
+    }
+
+    def "importResourcesTask bundles the resolved artifact into the jar's main resources"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='res'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            ${producerBody('imported-report')}
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theReport { from project(':producer'); classifier = 'report'; importResourcesTask() } }
+            }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:jar').build()
+
+        then: 'the producing task ran (wired) and the file was staged into the main resources'
+        result.task(':producer:makeReport').outcome == SUCCESS
+        result.task(':consumer:importTheReportResources').outcome == SUCCESS
+        new File(dir, 'consumer/build/generated/resources/genericArtifacts/theReport/main/report.txt').text == 'imported-report'
+
+        and: 'processResources picked the folder up so it lands in the jar resources'
+        new File(dir, 'consumer/build/resources/main/report.txt').text == 'imported-report'
+    }
+
+    def "importUnpackedResourcesTask extracts the archive into resources, configuration-cache compatible"() {
+        given: 'a producer that publishes a zip containing hello.txt as a generic artifact'
+        new File(dir, 'settings.gradle') << "rootProject.name='resunpack'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'; version = '1.0'
+            def payload = layout.buildDirectory.file('payload/hello.txt')
+            tasks.register('makePayload') { outputs.file(payload); doLast { payload.get().asFile.text = 'inside-zip' } }
+            tasks.register('makeZip', Zip) {
+                dependsOn 'makePayload'
+                archiveFileName = 'bundle.zip'
+                destinationDirectory = layout.buildDirectory.dir('dist')
+                from payload
+            }
+            genericArtifacts { produce { bundle { classifier = 'bundle'; artifact tasks.makeZip.archiveFile } } }
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theBundle { from project(':producer'); classifier = 'bundle'; importUnpackedResourcesTask() } }
+            }
+        """
+
+        when:
+        def first = runner(dir, ':consumer:jar', '--configuration-cache').build()
+
+        then: 'the producing zip task ran and the archive contents landed in the main resources'
+        first.task(':producer:makeZip').outcome == SUCCESS
+        first.task(':consumer:importTheBundleUnpackedResources').outcome == SUCCESS
+        new File(dir, 'consumer/build/resources/main/hello.txt').text == 'inside-zip'
+
+        when:
+        def second = runner(dir, ':consumer:jar', '--configuration-cache').build()
+
+        then:
+        second.output.contains('Reusing configuration cache.')
+        new File(dir, 'consumer/build/resources/main/hello.txt').text == 'inside-zip'
+    }
+
+    def "importResourcesTask targets a chosen source set and a subdirectory"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='restest'\ninclude ':producer', ':consumer'\n"
+        new File(dir, 'producer').mkdirs()
+        new File(dir, 'producer/build.gradle') << """
+            plugins { id 'io.github.nhwalker.artifacts' }
+            ${producerBody('test-report')}
+        """
+        new File(dir, 'consumer').mkdirs()
+        new File(dir, 'consumer/build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            genericArtifacts {
+                consume { theReport { from project(':producer'); classifier = 'report'; importResourcesTask('test') { into 'reports' } } }
+            }
+        """
+
+        when:
+        def result = runner(dir, ':consumer:processTestResources').build()
+
+        then: 'the file was staged under the test source set resources at the requested subdirectory'
+        result.task(':producer:makeReport').outcome == SUCCESS
+        result.task(':consumer:importTheReportTestResources').outcome == SUCCESS
+        new File(dir, 'consumer/build/generated/resources/genericArtifacts/theReport/test/reports/report.txt').text == 'test-report'
+        new File(dir, 'consumer/build/resources/test/reports/report.txt').text == 'test-report'
+    }
+
+    def "produce importResourcesTask bundles the produced artifact into the jar's main resources"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='prod'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def reportFile = layout.buildDirectory.file('report.txt')
+            def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
+            genericArtifacts {
+                produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask() } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'jar').build()
+
+        then: 'the producing task ran (wired) and the produced file is bundled in the jar'
+        result.task(':makeReport').outcome == SUCCESS
+        result.task(':importReportResources').outcome == SUCCESS
+        result.task(':jar').outcome == SUCCESS
+        new File(dir, 'build/resources/main/report.txt').text == 'produced'
+        new ZipFile(new File(dir, 'build/libs/prod.jar')).withCloseable { it.getEntry('report.txt') != null }
+    }
+
+    def "generateReferences exposes the bundled produced artifact's resource path"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def reportFile = layout.buildDirectory.file('report.txt')
+            def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
+            genericArtifacts {
+                generateReferences = true
+                referencesPackage = 'com.example'
+                produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask { into 'reports' } } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'the bundle ran first and the interface exposes the bundled resource path'
+        result.task(':importReportResources').outcome == SUCCESS
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        def generated = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureArtifacts.java')
+        generated.exists()
+        def text = generated.text
+        text.contains('package com.example;')
+        text.contains('public interface FixtureArtifacts')
+        text.contains('public static final String REPORT = "reports/report.txt";')
     }
 
     def "a composite build substitutes an external coordinate, resolving the artifact by classifier"() {

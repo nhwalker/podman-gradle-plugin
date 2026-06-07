@@ -15,13 +15,18 @@ import org.gradle.api.attributes.Category;
 import org.gradle.api.attributes.DocsType;
 import org.gradle.api.file.ArchiveOperations;
 import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.CopySpec;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileTree;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
+import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskContainer;
 import org.gradle.api.tasks.TaskProvider;
+
+import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 
 /**
  * A single artifact dependency declared in {@code genericArtifacts { consume { } }}.
@@ -67,6 +72,23 @@ import org.gradle.api.tasks.TaskProvider;
  *     }
  * }}
  * tasks.named('assembleSomething') { dependsOn genericArtifacts.consume.theDist.unpackTask() }
+ * </pre>
+ *
+ * <p>To bundle a consumed artifact into a Java project's jar, {@link #importResourcesTask}
+ * (verbatim) and {@link #importUnpackedResourcesTask} (extracted) stage the artifact into a
+ * generated resource folder and register it on a source set's resources (the {@code main}
+ * source set by default). Like the helm chart integration, the folder is added via
+ * {@code SourceDirectorySet.srcDir} rather than a plain {@code processResources} copy, so it
+ * is also visible on the eclipse classpath when running inside the IDE. The target project must
+ * apply the {@code java} plugin:
+ * <pre>
+ * plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+ * genericArtifacts { consume {
+ *     theReport {
+ *         from 'com.example:producer:1.0'; classifier = 'report'
+ *         importResourcesTask { into 'reports' }      // bundled at reports/&lt;file&gt; in the jar
+ *     }
+ * }}
  * </pre>
  */
 public abstract class ConsumedArtifact implements Named {
@@ -161,10 +183,7 @@ public abstract class ConsumedArtifact implements Named {
      * never reconfigures an already-registered task.
      */
     public TaskProvider<Sync> downloadTask() {
-        ConfigurableFileCollection files = getFiles();
-        return stagingTask(downloadTaskName(name),
-                "Stages the '" + name + "' consumed artifact into a directory.",
-                files, files, null);
+        return downloadTask(null);
     }
 
     /**
@@ -181,7 +200,7 @@ public abstract class ConsumedArtifact implements Named {
         ConfigurableFileCollection files = getFiles();
         return stagingTask(downloadTaskName(name),
                 "Stages the '" + name + "' consumed artifact into a directory.",
-                files, files, configuration);
+                files, files, defaultDestination(), configuration);
     }
 
     /**
@@ -201,10 +220,104 @@ public abstract class ConsumedArtifact implements Named {
      * <p>Idempotent, exactly like {@link #downloadTask(Action)}.
      */
     public TaskProvider<Sync> unpackTask(Action<? super Sync> configuration) {
-        // Capture the service + file collection (not `this`) so the lazy source is CC-safe.
-        ArchiveOperations archives = getArchiveOperations();
         ConfigurableFileCollection files = getFiles();
-        Provider<List<FileTree>> trees = files.getElements().map(locations ->
+        return stagingTask(unpackTaskName(name),
+                "Unpacks the '" + name + "' consumed archive into a directory.",
+                files, unpackedTrees(), defaultDestination(), configuration);
+    }
+
+    // ---- resource-import tasks --------------------------------------------------
+
+    /**
+     * Registers (or returns) a {@code Sync} task that copies the resolved artifact file(s) into
+     * the {@code main} source set's resources, so they are bundled into the jar. Safe to call
+     * anywhere as a dependency handle (never reconfigures an already-registered task).
+     */
+    public TaskProvider<Sync> importResourcesTask() {
+        return importResourcesTask(SourceSet.MAIN_SOURCE_SET_NAME, null);
+    }
+
+    /**
+     * Registers a {@code Sync} task that copies the resolved artifact file(s) into the
+     * {@code main} source set's resources. See {@link #importResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importResourcesTask(Action<? super CopySpec> configuration) {
+        return importResourcesTask(SourceSet.MAIN_SOURCE_SET_NAME, configuration);
+    }
+
+    /**
+     * Copies the resolved artifact file(s) into the named source set's resources. See
+     * {@link #importResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importResourcesTask(String sourceSetName) {
+        return importResourcesTask(sourceSetName, null);
+    }
+
+    /**
+     * Registers a {@code Sync} task that copies the resolved artifact file(s) into the named
+     * source set's resources (e.g. {@code main} or {@code test}), bundling them into the jar and
+     * surfacing them on the eclipse classpath. The files are staged under
+     * {@code build/generated/resources/genericArtifacts/<name>/<sourceSet>} and that folder is
+     * registered as a resource source directory; the target project must apply the {@code java}
+     * plugin. Files land in the resources root by default; {@code configuration} configures the
+     * copy spec, so {@code into('subdir')} nests them under a subdirectory (and
+     * {@code include}/{@code exclude}/{@code rename} filter them) while the staged root — the
+     * folder registered as a resource directory — stays put.
+     *
+     * <p>The first call registers the task and applies {@code configuration}; later calls return
+     * the same {@code TaskProvider} as an idempotent dependency handle without reconfiguring it.
+     */
+    public TaskProvider<Sync> importResourcesTask(String sourceSetName, Action<? super CopySpec> configuration) {
+        ConfigurableFileCollection files = getFiles();
+        return resourceImportTask(importResourcesTaskName(name, sourceSetName),
+                "Imports the '" + name + "' consumed artifact into the '" + sourceSetName + "' resources.",
+                files, files, sourceSetName, configuration);
+    }
+
+    /**
+     * Registers (or returns) a {@code Sync} task that extracts the resolved archive(s) into the
+     * {@code main} source set's resources. Safe to call anywhere as a dependency handle.
+     */
+    public TaskProvider<Sync> importUnpackedResourcesTask() {
+        return importUnpackedResourcesTask(SourceSet.MAIN_SOURCE_SET_NAME, null);
+    }
+
+    /**
+     * Registers a {@code Sync} task that extracts the resolved archive(s) into the {@code main}
+     * source set's resources. See {@link #importUnpackedResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importUnpackedResourcesTask(Action<? super CopySpec> configuration) {
+        return importUnpackedResourcesTask(SourceSet.MAIN_SOURCE_SET_NAME, configuration);
+    }
+
+    /**
+     * Extracts the resolved archive(s) into the named source set's resources. See
+     * {@link #importUnpackedResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importUnpackedResourcesTask(String sourceSetName) {
+        return importUnpackedResourcesTask(sourceSetName, null);
+    }
+
+    /**
+     * Registers a {@code Sync} task that extracts the contents of the resolved zip/tar archive(s)
+     * into the named source set's resources, bundling them into the jar. The archive format is
+     * detected per file from its extension. Staging location, copy-spec {@code configuration},
+     * source-set wiring, idempotency, and the {@code java}-plugin requirement match
+     * {@link #importResourcesTask(String, Action)}.
+     */
+    public TaskProvider<Sync> importUnpackedResourcesTask(String sourceSetName, Action<? super CopySpec> configuration) {
+        return resourceImportTask(importUnpackedResourcesTaskName(name, sourceSetName),
+                "Imports the unpacked '" + name + "' consumed archive into the '" + sourceSetName + "' resources.",
+                getFiles(), unpackedTrees(), sourceSetName, configuration);
+    }
+
+    /**
+     * Builds the per-file archive trees for unpacking. Captures the injected service and file
+     * collection (not {@code this}) so the lazy source stays configuration-cache safe.
+     */
+    private Provider<List<FileTree>> unpackedTrees() {
+        ArchiveOperations archives = getArchiveOperations();
+        return getFiles().getElements().map(locations ->
                 locations.stream()
                         .map(location -> {
                             File archive = location.getAsFile();
@@ -212,20 +325,33 @@ public abstract class ConsumedArtifact implements Named {
                                     ? archives.tarTree(archive) : archives.zipTree(archive);
                         })
                         .collect(Collectors.toList()));
-        return stagingTask(unpackTaskName(name),
-                "Unpacks the '" + name + "' consumed archive into a directory.",
-                files, trees, configuration);
     }
 
     /**
-     * Registers the {@code Sync} task on first call (default destination, depending on
+     * Stages {@code source} into {@code build/generated/resources/genericArtifacts/<name>/<sourceSet>}
+     * and registers that folder on the named source set's resources, via the shared
+     * {@link ResourceImports#register} helper. {@code configuration} configures the copy spec so it
+     * can nest into a subdirectory or filter while the staged root stays put. Later calls return the
+     * same task as an idempotent dependency handle.
+     */
+    private TaskProvider<Sync> resourceImportTask(String taskName, String description,
+            Object buildDependency, Object source, String sourceSetName, Action<? super CopySpec> configuration) {
+        Provider<Directory> destination = project.getLayout().getBuildDirectory()
+                .dir("generated/resources/genericArtifacts/" + name + "/" + sourceSetName);
+        return ResourceImports.register(project, TASK_GROUP, taskName, description,
+                buildDependency, source, sourceSetName, destination, configuration);
+    }
+
+    /**
+     * Registers the {@code Sync} task on first call (staging into {@code destination}, depending on
      * {@code buildDependency} and copying from {@code source}), or returns the existing one on
      * later calls. A non-null {@code configuration} is applied either way; a null one (the no-arg
      * handle path) never reconfigures an existing task, so it is safe to call from within another
      * task's configuration block.
      */
     private TaskProvider<Sync> stagingTask(String taskName, String description,
-            Object buildDependency, Object source, Action<? super Sync> configuration) {
+            Object buildDependency, Object source, Provider<Directory> destination,
+            Action<? super Sync> configuration) {
         TaskContainer tasks = project.getTasks();
         if (tasks.getNames().contains(taskName)) {
             TaskProvider<Sync> existing = tasks.named(taskName, Sync.class);
@@ -238,7 +364,7 @@ public abstract class ConsumedArtifact implements Named {
             task.setGroup(TASK_GROUP);
             task.setDescription(description);
             task.dependsOn(buildDependency);
-            task.into(defaultDestination());
+            task.into(destination);
             task.from(source);
             if (configuration != null) {
                 configuration.execute(task);
@@ -246,7 +372,7 @@ public abstract class ConsumedArtifact implements Named {
         });
     }
 
-    private Provider<org.gradle.api.file.Directory> defaultDestination() {
+    private Provider<Directory> defaultDestination() {
         return project.getLayout().getBuildDirectory().dir("inputs/" + name);
     }
 
@@ -256,6 +382,19 @@ public abstract class ConsumedArtifact implements Named {
 
     public static String unpackTaskName(String name) {
         return "unpack" + capitalize(name);
+    }
+
+    public static String importResourcesTaskName(String name, String sourceSetName) {
+        return "import" + capitalize(name) + sourceSetQualifier(sourceSetName) + "Resources";
+    }
+
+    public static String importUnpackedResourcesTaskName(String name, String sourceSetName) {
+        return "import" + capitalize(name) + sourceSetQualifier(sourceSetName) + "UnpackedResources";
+    }
+
+    /** Empty for the conventional {@code main} source set, otherwise the capitalized name. */
+    private static String sourceSetQualifier(String sourceSetName) {
+        return SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName) ? "" : capitalize(sourceSetName);
     }
 
     private static boolean isTarArchive(String fileName) {

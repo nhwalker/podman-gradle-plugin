@@ -810,30 +810,33 @@ Your `platform/Chart.yaml` still lists the subchart under `dependencies:`; the
 plugin supplies the archive bytes into `charts/`. Publish the charts the same way
 as container images — `from components.helm` in a `MavenPublication`.
 
-### Bundling charts in the jar and exposing them to Java (`generateJavaRefs`)
+### Bundling charts in the jar and exposing them to Java
 
-When a Java plugin is applied and `generateJavaRefs = true`, the plugin stages each
-packaged chart into a generated resource folder laid out as `charts/<chart>.tgz` and
-registers it as a `main` resource directory — so the chart ships in the jar at that
-path *and* appears as a resource source folder (available when running inside the IDE).
-It also generates a `<ProjectName>Charts` interface holding each chart's classpath
-resource path as a `public static final String` constant (the constant name is the
-chart name in `UPPER_SNAKE_CASE`), added to the `main` source set so it compiles with
-your code. Both are regenerated whenever a chart is packaged. When the `eclipse` plugin
-is also applied, `eclipseClasspath` packages the charts, regenerates the refs, and
-stages the resources, so the `.classpath` carries both the generated source folder and
-the chart resource folder — mirroring the container plugin.
+Bundling is opted into per-chart with `importResourcesTask()` — the same method the
+generic artifacts `produce`/`consume` DSL uses. When a Java plugin is applied, it stages
+the packaged chart into a generated resource folder laid out as `charts/<chart>.tgz` and
+registers it as a resource directory (the `main` source set by default; pass a name such
+as `importResourcesTask('test')` to target another) — so the chart ships in the jar at
+that path *and* appears as a resource source folder (available when running inside the
+IDE).
+
+Setting `generateReferences = true` additionally generates a `<ProjectName>Charts`
+interface holding each bundled chart's classpath resource path as a
+`public static final String` constant (the constant name is the chart name in
+`UPPER_SNAKE_CASE`), added to the `main` source set so it compiles with your code. When
+the `eclipse` plugin is also applied, `eclipseClasspath` carries both the generated
+source folder and the chart resource folders.
 
 ```groovy
 plugins { id 'java'; id 'io.github.nhwalker.helm' }
 group = 'com.example'                    // becomes the generated package
 
 helm {
-    generateJavaRefs = true
-    // javaRefsPackage = 'com.example.charts'   // override (defaults to project group)
+    generateReferences = true
+    // referencesPackage = 'com.example.charts'   // override (defaults to project group)
     charts {
-        api      { /* src/main/helm/api */ }
-        webProxy { /* src/main/helm/webProxy */ }
+        api      { importResourcesTask() }   // src/main/helm/api, bundled at charts/api.tgz
+        webProxy { importResourcesTask() }   // src/main/helm/webProxy
     }
 }
 ```
@@ -963,6 +966,38 @@ publishing { publications { maven(MavenPublication) { from components.genericArt
 
 The whole project publishes as one module whose Gradle Module Metadata carries each
 produced artifact as an attribute-selected variant with a distinct classifier.
+
+#### Bundling produced artifacts into your jar and exposing them to Java
+
+A produced artifact can also be bundled into this project's own jar resources with
+`importResourcesTask()` (the same method the `consume` side uses). When a Java plugin is
+applied it stages the produced file(s) into a generated resource folder registered on a
+source set's resources (the `main` source set by default; pass a name such as
+`importResourcesTask('test')` to target another), so they ship in the jar and appear on
+the eclipse classpath. The copy-spec `Action` overload places files under a subdirectory,
+e.g. `importResourcesTask { into 'reports' }`.
+
+Setting `generateReferences = true` additionally generates a `<ProjectName>Artifacts`
+interface holding each bundled artifact's classpath resource path as a
+`public static final String` constant (named after the element in `UPPER_SNAKE_CASE`),
+compiled with your `main` sources.
+
+```groovy
+plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+group = 'com.example'
+
+genericArtifacts {
+    generateReferences = true
+    // referencesPackage = 'com.example'        // override (defaults to project group)
+    produce {
+        report {
+            artifact tasks.makeReport.outputFile
+            importResourcesTask { into 'reports' }   // bundled at reports/<file> in the jar
+        }
+    }
+}
+// e.g. getClass().getResourceAsStream("/" + FixtureArtifacts.REPORT)
+```
 
 #### Application & distribution archives
 
