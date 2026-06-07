@@ -191,21 +191,36 @@ of producing empty or malformed arguments.
 
 #### Execution
 
-The `@TaskAction` method ties it together:
+The `@TaskAction` method runs the task's primary subcommand through the shared
+`runSubcommand(...)` primitive and stashes any captured output:
 
 ```java
 @TaskAction
 public void execute() {
-    List<String> command = assembleCommand();
+    String captured = runSubcommand(buildSubcommand(), getCaptureOutput().get());
+    if (captured != null) {
+        capturedStandardOutput = captured;   // exposed via task.getStandardOutput()
+    }
+}
+```
+
+`runSubcommand` is where the real work happens. Because it takes the subcommand as a
+parameter, the tasks that issue more than one podman invocation (`tag`,
+copy-from-image) call it repeatedly — each call independently honoring
+`dryRun`/`ignoreExitValue`:
+
+```java
+protected String runSubcommand(List<String> subcommand, boolean captureStdout) {
+    List<String> command = assembleCommandFor(subcommand);
 
     if (getDryRun().get()) {                       // 1. dry-run short-circuit
         getLogger().lifecycle("[dry-run] {}", String.join(" ", command));
-        return;
+        return null;
     }
 
     getLogger().info("Executing: {}", String.join(" ", command));
 
-    var buffer = getCaptureOutput().get()          // 2. optional stdout capture
+    var buffer = captureStdout                     // 2. optional stdout capture
             ? new ByteArrayOutputStream() : null;
 
     ExecResult result = getExecOperations().exec(spec -> {   // 3. run podman
@@ -214,14 +229,14 @@ public void execute() {
         if (buffer != null) spec.setStandardOutput(buffer);
     });
 
-    if (buffer != null)                            // 4. stash captured output
-        capturedStandardOutput = buffer.toString(StandardCharsets.UTF_8);
-
-    if (getIgnoreExitValue().get())                // 5. exit handling
+    if (getIgnoreExitValue().get())                // 4. exit handling
         getLogger().info("{} exited with code {}", getExecutable().get(),
                          result.getExitValue());
     else
         result.assertNormalExitValue();
+
+    return buffer != null                          // 5. return captured stdout
+            ? buffer.toString(StandardCharsets.UTF_8) : null;
 }
 ```
 
@@ -235,12 +250,13 @@ The five steps:
    console (the default `ExecOperations` behavior).
 3. **Run** — `ExecOperations.exec` forks the process and waits for it. By default
    a non-zero exit throws.
-4. **Stash** — captured output is decoded as UTF-8 and exposed via
-   `task.getStandardOutput()` for `doLast { }` blocks to consume.
-5. **Exit handling** — with `ignoreExitValue = true`, the exit code is merely
+4. **Exit handling** — with `ignoreExitValue = true`, the exit code is merely
    logged so the build continues (handy for idempotent cleanup like "stop a
    container that may not exist"); otherwise `assertNormalExitValue()` fails the
    task on any non-zero code.
+5. **Return** — the captured output (decoded as UTF-8) is returned to `execute()`,
+   which stashes it so `task.getStandardOutput()` can hand it to `doLast { }`
+   blocks.
 
 ### 4. Concrete tasks
 
