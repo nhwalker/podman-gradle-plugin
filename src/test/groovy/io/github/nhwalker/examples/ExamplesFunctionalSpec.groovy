@@ -97,8 +97,10 @@ class ExamplesFunctionalSpec extends Specification {
         def result = runner(':base-image:build').build()
 
         then: 'building the image (and saving its archive, since createArchive is on) is part of assemble'
-        result.task(':base-image:buildBaseImage').outcome == SUCCESS
-        result.task(':base-image:saveBaseImage').outcome == SUCCESS
+        // SUCCESS or UP_TO_DATE: the shared examples build (build cache on) may have built these in an
+        // earlier case; either way their presence in the build graph proves the lifecycle wiring.
+        result.task(':base-image:buildBaseImage').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':base-image:saveBaseImage').outcome in [SUCCESS, UP_TO_DATE]
     }
 
     @Requires({ ExamplesFunctionalSpec.HELM })
@@ -118,8 +120,10 @@ class ExamplesFunctionalSpec extends Specification {
         def result = runner(':base-chart:build').build()
 
         then: 'package is wired into assemble and lint into check, both reached by build'
-        result.task(':base-chart:packageBaseChart').outcome == SUCCESS
-        result.task(':base-chart:lintBaseChart').outcome == SUCCESS
+        // SUCCESS or UP_TO_DATE: the shared examples build (build cache on) may have run these in an
+        // earlier case; either way their presence in the build graph proves the lifecycle wiring.
+        result.task(':base-chart:packageBaseChart').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':base-chart:lintBaseChart').outcome in [SUCCESS, UP_TO_DATE]
     }
 
     @Requires({ ExamplesFunctionalSpec.PODMAN && ExamplesFunctionalSpec.HELM })
