@@ -92,6 +92,21 @@ class ExamplesFunctionalSpec extends Specification {
     }
 
     @Requires({ ExamplesFunctionalSpec.PODMAN })
+    def "the api-service example generates a CycloneDX SBOM by running syft in a container"() {
+        when:
+        def result = runner(':api-service:generateApiImageSbom').build()
+
+        then: 'the image is built, saved, and scanned into a published-shape SBOM document'
+        result.task(':api-service:buildApiImage').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':api-service:generateApiImageSbom').outcome == SUCCESS
+
+        and: 'the SBOM file is a CycloneDX document'
+        def sbom = new File(examplesDir(), 'api-service/build/container/api/api-sbom.cyclonedx.json')
+        sbom.isFile()
+        sbom.text.contains('CycloneDX')
+    }
+
+    @Requires({ ExamplesFunctionalSpec.PODMAN })
     def "a container project's build assembles the image and its archive by default"() {
         when:
         def result = runner(':base-image:build').build()

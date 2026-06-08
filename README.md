@@ -109,14 +109,16 @@ extension.
 
 ### 2. `ContainerExtension` — shared defaults
 
-The extension is an abstract class with three lazy properties, so Gradle
+The extension is an abstract class with lazy properties, so Gradle
 generates the implementation:
 
-| Property        | Type                   | Meaning                                                            |
-|-----------------|------------------------|--------------------------------------------------------------------|
-| `executable`    | `Property<String>`     | Which binary to run. Defaults to `podman` (resolved on `PATH`).    |
-| `globalOptions` | `ListProperty<String>` | Flags inserted *before* the subcommand on every call. Empty by default. |
-| `connection`    | `Property<String>`     | Optional `--connection <name>` for a remote podman service.        |
+| Property         | Type                   | Meaning                                                            |
+|------------------|------------------------|--------------------------------------------------------------------|
+| `executable`     | `Property<String>`     | Which binary to run. Defaults to `podman` (resolved on `PATH`).    |
+| `globalOptions`  | `ListProperty<String>` | Flags inserted *before* the subcommand on every call. Empty by default. |
+| `connection`     | `Property<String>`     | Optional `--connection <name>` for a remote podman service.        |
+| `syftImage`      | `Property<String>`     | Syft container image used for SBOM generation. Defaults to a pinned `docker.io/anchore/syft` tag. |
+| `syftPullPolicy` | `Property<String>`     | `podman run --pull` policy for the Syft image. Defaults to `missing`. |
 
 These exist purely to be wired into tasks as conventions (see above).
 
@@ -301,6 +303,7 @@ All task types live in the package
 | `ContainerRemoveContainerTask`  | `rm`      | `containers`, `force`, `volumes`, `all`                                                   |
 | `ContainerRemoveImageTask`      | `rmi`     | `images`, `force`, `all`                                                                  |
 | `ContainerSaveTask`             | `save`    | `image`, `outputFile`, `format`                                                           |
+| `ContainerSbomTask`             | `run` (syft) | `archiveFile`, `archiveFormat`, `syftImage`, `syftPullPolicy`, `sbomFormat`, `sbomFile` |
 | `ContainerLoadTask`             | `load`    | `inputFile`                                                                               |
 | `ContainerCopyFromImageTask`    | `create` + `cp` + `rm` | `image` *or* `container`, `paths`, `createOptions`, `copyOptions`, `removeContainer` |
 | `ContainerExecTask`             | *any*     | `arguments`                                                                               |
@@ -327,6 +330,17 @@ honors `dryRun`/`ignoreExitValue` for every call):
 
   If you already have a container, set `container` instead of `image` and the
   task skips the create/remove steps and copies straight from it.
+
+- **`ContainerSbomTask`** — generates a Software Bill of Materials by running
+  [Anchore Syft](https://github.com/anchore/syft) **inside a container** rather than
+  from a host binary: `podman run --rm -v <archive.tar>:/scan/image.tar:ro <syftImage>
+  scan <oci-archive|docker-archive>:/scan/image.tar -o <format>`. Syft writes the SBOM
+  to stdout (its logs go to stderr), so the document is captured and written to
+  `sbomFile` by Gradle itself — avoiding the rootless-podman file-ownership problems a
+  container-written output mount would cause. Because it scans the saved tar (a real
+  file input) rather than podman storage, its up-to-date check is fully file-based.
+  Configure the Syft image and pull policy project-wide via `container.syftImage` /
+  `container.syftPullPolicy`.
 
 ---
 
@@ -533,13 +547,14 @@ jars:
   capability). No custom capabilities are added — this is what lets composite builds
   substitute it automatically.
 - **Which image** within a module is chosen by the `imageName` *attribute*; **which form**
-  (reference vs. archive) by `imageType` (and `archiveFormat`). So one project can publish
-  several images under one coordinate, each an attribute-selected variant with its own
-  artifact classifier.
+  (reference, archive, or SBOM) by `imageType` (and `archiveFormat`/`sbomFormat`). So one
+  project can publish several images under one coordinate, each an attribute-selected variant
+  with its own artifact classifier.
 - The **reference** variant is a small file holding a single-line image reference — the
   coordinate `name:tag`, with the digest appended in place by default to give the canonical
   `name:tag@sha256:…` form — a coordinate pointer; the image itself stays in podman's local
-  storage. The **archive** variant carries the actual `podman save` tar.
+  storage. The **archive** variant carries the actual `podman save` tar. The **SBOM** variant
+  (opt-in via `generateSbom = true`) carries a CycloneDX JSON Software Bill of Materials.
 
 Images are published and consumed as **generic artifacts** — they reuse the
 `io.github.nhwalker.artifacts` plugin's model. The variant's Maven classifier is
@@ -602,6 +617,39 @@ tasks.register('loadBase', io.github.nhwalker.container.gradle.tasks.ContainerLo
     inputFile = layout.file(provider { genericArtifacts.consume.incomingImage.files.singleFile })
 }
 ```
+
+### SBOM generation (`generateSbom`)
+
+Set `generateSbom = true` on an image to publish a Software Bill of Materials variant
+(`imageType=sbom`, classifier `<image>-sbom`, a `json` artifact in **CycloneDX JSON**). The
+SBOM is produced by running [Anchore Syft](https://github.com/anchore/syft) **in a container**
+(`podman run … <syftImage> scan …`), scanning the image's saved tar — so no `syft` binary need
+be installed on the host or in CI.
+
+```groovy
+container {
+    images {
+        app {
+            tags          = ["com.example/app:${version}"]
+            generateSbom  = true             // publish an imageType=sbom variant
+            // sbomFormat = 'cyclonedx-json'  // default (the only built-in format today)
+        }
+    }
+    // Project-wide Syft container settings (defaults shown):
+    // syftImage      = 'docker.io/anchore/syft:v1.18.1'  // pin for reproducible scans
+    // syftPullPolicy = 'missing'                          // podman run --pull policy
+}
+```
+
+Enabling `generateSbom` produces the image's archive tar so Syft can scan it, **even when
+`createArchive` is off** — but the archive variant itself is only published when `createArchive
+= true`. When both are on, the single `save<Name>Image` task feeds both variants. The SBOM task
+(`generate<Name>ImageSbom`) takes the saved tar as a file input, so it re-runs only when the
+image content changes, and participates in `assemble` when lifecycle integration is on.
+
+Consume it like any other variant — select classifier `<image>-sbom` through the generic
+`genericArtifacts { consume { } }` DSL — or feed the file to vulnerability tooling (Grype,
+Dependency-Track, …).
 
 ### Multi-image archives (`archives { }`)
 

@@ -73,6 +73,8 @@ public abstract class ContainerImage implements Named {
         getCreateArchive().convention(false);
         getArchiveFormat().convention("oci-archive");
         getIncludeDigest().convention(true);
+        getGenerateSbom().convention(false);
+        getSbomFormat().convention(ContainerAttributes.SBOM_FORMAT_CYCLONEDX);
     }
 
     @Override
@@ -115,6 +117,18 @@ public abstract class ContainerImage implements Named {
 
     /** Whether the reference file records the digest-pinned form. Defaults to {@code true}. */
     public abstract Property<Boolean> getIncludeDigest();
+
+    /**
+     * Whether to generate an SBOM (Software Bill of Materials) variant for this image by scanning
+     * its saved archive with Syft (run in a container). Defaults to {@code false}. Enabling this
+     * causes the image's archive tar to be produced even when {@link #getCreateArchive() createArchive}
+     * is off (the tar is scanned but its archive variant is not published unless {@code createArchive}
+     * is also set).
+     */
+    public abstract Property<Boolean> getGenerateSbom();
+
+    /** SBOM document format passed to Syft ({@code -o}). Defaults to {@code cyclonedx-json}. */
+    public abstract Property<String> getSbomFormat();
 
     /**
      * Designates one of this image's artifacts as the module's default (unclassified) main artifact,
@@ -242,12 +256,20 @@ public abstract class ContainerImage implements Named {
         return "save" + capitalize(image) + "Image";
     }
 
+    public static String sbomTaskName(String image) {
+        return "generate" + capitalize(image) + "ImageSbom";
+    }
+
     public static String referenceElementsName(String image) {
         return image + "ReferenceElements";
     }
 
     public static String archiveElementsName(String image) {
         return image + "ArchiveElements";
+    }
+
+    public static String sbomElementsName(String image) {
+        return image + "SbomElements";
     }
 
     /** The build-relative path of an image's reference file. */
@@ -259,6 +281,11 @@ public abstract class ContainerImage implements Named {
     public static String archiveFilePath(String image, String archiveFormat) {
         String ext = archiveFormat != null && archiveFormat.startsWith("docker") ? "docker.tar" : "oci.tar";
         return "container/" + image + "/" + image + "." + ext;
+    }
+
+    /** The build-relative path of an image's generated SBOM document. */
+    public static String sbomFilePath(String image) {
+        return "container/" + image + "/" + image + "-sbom.cyclonedx.json";
     }
 
     private static String sanitize(String token) {

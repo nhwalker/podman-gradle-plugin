@@ -38,6 +38,7 @@ import io.github.nhwalker.container.gradle.tasks.ContainerArchiveTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerBuildTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerImageReferenceTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerSaveTask;
+import io.github.nhwalker.container.gradle.tasks.ContainerSbomTask;
 
 /**
  * Registers the {@code container} extension, applies its configuration as conventions
@@ -93,6 +94,8 @@ public class ContainerPlugin implements Plugin<Project> {
         extension.getReferencesClassName().convention(project.provider(() ->
                 ResourceImports.defaultReferencesBaseName(project.getName(), REFERENCES_DOMAIN)));
         extension.getLifecycleIntegration().convention(true);
+        extension.getSyftImage().convention("docker.io/anchore/syft:v1.18.1");
+        extension.getSyftPullPolicy().convention("missing");
 
         // Contribute assemble/check/build/clean so images can be wired into the standard build,
         // even in a project that does not also apply the java/base plugin (idempotent if it does).
@@ -105,6 +108,12 @@ public class ContainerPlugin implements Plugin<Project> {
             task.getConnection().convention(extension.getConnection());
         });
 
+        // SBOM tasks additionally inherit the project-wide Syft image and pull policy.
+        project.getTasks().withType(ContainerSbomTask.class).configureEach(task -> {
+            task.getSyftImage().convention(extension.getSyftImage());
+            task.getSyftPullPolicy().convention(extension.getSyftPullPolicy());
+        });
+
         // Container images are modeled as generic artifacts: register the core
         // artifact schema, the container free-attribute keys, and the rule that
         // defaults an unrequested archive format to oci-archive.
@@ -112,6 +121,7 @@ public class ContainerPlugin implements Plugin<Project> {
         ArtifactsDependencies.registerAttributeKey(project, ContainerAttributes.IMAGE_NAME_KEY);
         ArtifactsDependencies.registerAttributeKey(project, ContainerAttributes.IMAGE_TYPE_KEY);
         ArtifactsDependencies.registerAttributeKey(project, ContainerAttributes.ARCHIVE_FORMAT_KEY);
+        ArtifactsDependencies.registerAttributeKey(project, ContainerAttributes.SBOM_FORMAT_KEY);
         project.getDependencies().getAttributesSchema()
                 .attribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.ARCHIVE_FORMAT_KEY))
                 .getDisambiguationRules().add(ContainerAttributes.ArchiveFormatDefaultRule.class);
@@ -330,9 +340,13 @@ public class ContainerPlugin implements Plugin<Project> {
         PublishingSupport.addVariants(project, softwareComponentFactory, referenceElements.get(),
                 referenceIsDefault ? "container image '" + name + "' reference" : null);
 
-        if (createArchive) {
+        // Generating an SBOM scans the saved tar, so the archive is produced whenever an archive
+        // variant is published OR an SBOM is requested; the save task is registered once and shared.
+        boolean generateSbom = image.getGenerateSbom().get();
+        TaskProvider<ContainerSaveTask> saveTask = null;
+        if (createArchive || generateSbom) {
             String format = image.getArchiveFormat().getOrElse(ContainerAttributes.ARCHIVE_FORMAT_OCI);
-            var saveTask = project.getTasks().register(ContainerImage.saveTaskName(name), ContainerSaveTask.class, t -> {
+            saveTask = project.getTasks().register(ContainerImage.saveTaskName(name), ContainerSaveTask.class, t -> {
                 t.dependsOn(buildTask);
                 t.getImage().convention(primaryTag);
                 t.getFormat().convention(image.getArchiveFormat());
@@ -347,6 +361,11 @@ public class ContainerPlugin implements Plugin<Project> {
                             referenceTask.flatMap(ContainerImageReferenceTask::getReferenceFile));
                 }
             });
+        }
+
+        if (createArchive) {
+            String format = image.getArchiveFormat().getOrElse(ContainerAttributes.ARCHIVE_FORMAT_OCI);
+            final TaskProvider<ContainerSaveTask> archiveTask = saveTask; // effectively final for the lambda
             // Archive variant: classifier <image>, free attrs imageName/imageType/archiveFormat,
             // artifact type tar with the save task as its build dependency.
             var archiveElements = ArtifactsDependencies.elements(project,
@@ -355,16 +374,49 @@ public class ContainerPlugin implements Plugin<Project> {
                             ContainerAttributes.IMAGE_TYPE_KEY, ContainerAttributes.IMAGE_TYPE_ARCHIVE,
                             ContainerAttributes.ARCHIVE_FORMAT_KEY, format),
                     List.of(new ArtifactSpec(
-                            saveTask.flatMap(ContainerSaveTask::getOutputFile),
+                            archiveTask.flatMap(ContainerSaveTask::getOutputFile),
                             artifact -> {
                                 artifact.setType("tar");
-                                artifact.builtBy(saveTask);
+                                artifact.builtBy(archiveTask);
                             })),
                     archiveIsDefault);
             PublishingSupport.addVariants(project, softwareComponentFactory, archiveElements.get(),
                     archiveIsDefault ? "container image '" + name + "' archive" : null);
             if (lifecycle) {
                 LifecycleSupport.assembleDependsOn(project, saveTask);
+            }
+        }
+
+        if (generateSbom) {
+            String sbomFormat = image.getSbomFormat().getOrElse(ContainerAttributes.SBOM_FORMAT_CYCLONEDX);
+            final TaskProvider<ContainerSaveTask> archiveTask = saveTask; // effectively final for the lambda
+            var sbomTask = project.getTasks().register(
+                    ContainerImage.sbomTaskName(name), ContainerSbomTask.class, t -> {
+                t.dependsOn(archiveTask);
+                t.getArchiveFile().convention(archiveTask.flatMap(ContainerSaveTask::getOutputFile));
+                t.getArchiveFormat().convention(image.getArchiveFormat());
+                t.getSbomFormat().convention(image.getSbomFormat());
+                // syftImage/syftPullPolicy conventions come from the withType(...) block in apply().
+                t.getSbomFile().convention(
+                        layout.getBuildDirectory().file(ContainerImage.sbomFilePath(name)));
+            });
+            // SBOM variant: classifier <image>-sbom, free attrs imageName/imageType/sbomFormat,
+            // artifact type json with the SBOM task as its build dependency. Never the module default.
+            var sbomElements = ArtifactsDependencies.elements(project,
+                    ContainerImage.sbomElementsName(name), name + "-sbom",
+                    Map.of(ContainerAttributes.IMAGE_NAME_KEY, name,
+                            ContainerAttributes.IMAGE_TYPE_KEY, ContainerAttributes.IMAGE_TYPE_SBOM,
+                            ContainerAttributes.SBOM_FORMAT_KEY, sbomFormat),
+                    List.of(new ArtifactSpec(
+                            sbomTask.flatMap(ContainerSbomTask::getSbomFile),
+                            artifact -> {
+                                artifact.setType("json");
+                                artifact.builtBy(sbomTask);
+                            })),
+                    false);
+            PublishingSupport.addVariants(project, softwareComponentFactory, sbomElements.get(), null);
+            if (lifecycle) {
+                LifecycleSupport.assembleDependsOn(project, sbomTask);
             }
         }
         return referenceTask;
