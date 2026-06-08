@@ -1,0 +1,116 @@
+// multi-image-archive — bundle SEVERAL images into ONE archive, from a combination of
+// image references, and publish that archive as a generic artifact.
+//
+// The container plugin's per-image `createArchive` exports one tar per image. This example
+// shows the other shape: a SINGLE `podman save img1 img2 ...` archive that carries multiple
+// images at once (handy as a single air-gapped/offline bundle you `podman load` in one shot).
+//
+// The inputs are IMAGE REFERENCES, aggregated the same way :integration-test aggregates them:
+// the generic-artifacts `consume` block pulls the digest-pinned reference of each producer
+// image (resolving a reference variant builds + inspects that producer image, so it lands in
+// local podman storage). A custom MultiImageArchive task then reads those reference files and
+// runs a single `podman save` over the combination. Finally the archive is published as a
+// generic artifact via `produce` + `from components.genericArtifacts`.
+//
+// Building the producer images requires podman; everything is scoped so the archive task is
+// the only thing that shells out.
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+plugins {
+    id 'io.github.nhwalker.artifacts'
+    id 'maven-publish'
+}
+
+// ---- the multi-image save task ---------------------------------------------------
+//
+// `podman save -o bundle.tar name1:tag1 name2:tag2` writes one archive holding every listed
+// image. We feed it the canonical name:tag read from each consumed reference file (stripping
+// the @sha256:... digest, which `podman save` does not take as a positional argument). The
+// reference files double as the up-to-date inputs: each carries the image digest, so a
+// same-tag rebuild of any producer flips a digest and re-runs the save, while an unchanged
+// rebuild stays up-to-date. Uses injected ExecOperations so it is configuration-cache safe.
+abstract class MultiImageArchive extends DefaultTask {
+
+    /** The consumed image-reference files (one `name:tag@sha256:...` line each). */
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    abstract ConfigurableFileCollection getImageReferenceFiles()
+
+    /** The podman executable (honors -Ppodman.executable, like the container examples). */
+    @Input
+    abstract Property<String> getExecutable()
+
+    /** Archive format passed to `podman save --format` (oci-archive or docker-archive). */
+    @Input
+    abstract Property<String> getFormat()
+
+    /** The combined archive to write. */
+    @OutputFile
+    abstract RegularFileProperty getOutputFile()
+
+    @Inject
+    abstract ExecOperations getExecOps()
+
+    @TaskAction
+    void save() {
+        def images = imageReferenceFiles.files.collect { file ->
+            def ref = file.readLines().find { !it.trim().isEmpty() }.trim()
+            // `podman save` takes name:tag (or an id), not the name:tag@digest triple.
+            int at = ref.indexOf('@')
+            at >= 0 ? ref.substring(0, at) : ref
+        }
+        def out = outputFile.get().asFile
+        out.parentFile.mkdirs()
+        execOps.exec { spec ->
+            spec.executable = executable.get()
+            spec.args = ['save', '--format', format.get(), '-o', out.absolutePath] + images
+        }
+        logger.lifecycle("Wrote multi-image archive {} containing {}", out, images)
+    }
+}
+
+def saveBundle = tasks.register('saveImageBundle', MultiImageArchive) {
+    group = 'container'
+    description = 'Saves the consumed images into a single multi-image OCI archive.'
+    executable = providers.gradleProperty('podman.executable').getOrElse('podman')
+    format = 'oci-archive'
+    outputFile = layout.buildDirectory.file('archive/examples-bundle.oci.tar')
+    // The combination of image references to bundle (build deps flow from the consume configs,
+    // which build + inspect each producer image before this task runs).
+    imageReferenceFiles.from(
+            genericArtifacts.consume.baseImageRef.files,
+            genericArtifacts.consume.workerImageRef.files)
+}
+
+genericArtifacts {
+    consume {
+        // The combination of image references: digest-pinned references of two producers.
+        // Resolving each reference variant builds + inspects that producer image into local
+        // podman storage, which is exactly what `podman save` then reads.
+        baseImageRef   { from project(':base-image');     classifier = 'base-reference' }
+        workerImageRef { from project(':worker-service'); classifier = 'worker-reference' }
+    }
+
+    // Publish the single combined archive as a generic artifact (one classified variant of the
+    // genericArtifacts component). The archiveFormat attribute lets consumers select by format.
+    produce {
+        imageBundle {
+            classifier = 'image-bundle'
+            attribute 'archiveFormat', 'oci-archive'
+            artifact saveBundle.flatMap { it.outputFile }
+        }
+    }
+}
+
+publishing {
+    publications {
+        // Publishes io.github.nhwalker.examples:multi-image-archive:0.1.0 with the
+        // image-bundle archive as its sole variant. Consumers resolve it with
+        // `from 'io.github.nhwalker.examples:multi-image-archive:0.1.0'; classifier = 'image-bundle'`.
+        maven(MavenPublication) { from components.genericArtifacts }
+    }
+    repositories {
+        maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }
+    }
+}
