@@ -73,6 +73,15 @@ public abstract class HelmExtension {
      */
     public abstract Property<String> getReferencesClassName();
 
+    /**
+     * Whether declared charts participate in the standard lifecycle tasks by default: when {@code true}
+     * (the default) {@code assemble} (and therefore {@code build}) packages every chart and {@code check}
+     * lints every chart whose {@link io.github.nhwalker.helm.gradle.dsl.HelmChart#getLint() lint} is on.
+     * Set to {@code false} to opt the whole project out; individual charts can override either way via
+     * {@link io.github.nhwalker.helm.gradle.dsl.HelmChart#getLifecycleIntegration()}.
+     */
+    public abstract Property<Boolean> getLifecycleIntegration();
+
     /** The charts declared for this project. */
     public NamedDomainObjectContainer<HelmChart> getCharts() {
         return charts;

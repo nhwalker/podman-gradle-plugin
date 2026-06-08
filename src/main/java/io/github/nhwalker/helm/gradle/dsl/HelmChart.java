@@ -90,6 +90,15 @@ public abstract class HelmChart implements Named {
     public abstract Property<Boolean> getUpdateDependencies();
 
     /**
+     * Whether this chart participates in the standard lifecycle tasks (its package task becomes a
+     * dependency of {@code assemble}, and its lint task — when {@link #getLint() lint} is on — a
+     * dependency of {@code check}). Unset by default, inheriting the project-wide
+     * {@link io.github.nhwalker.helm.gradle.HelmExtension#getLifecycleIntegration()} (which defaults to
+     * {@code true}); set explicitly to opt this chart in or out regardless of the project default.
+     */
+    public abstract Property<Boolean> getLifecycleIntegration();
+
+    /**
      * Build-time values injected before packaging. Each entry replaces the
      * placeholder <code>{{ .PreValues.&lt;key&gt; }}</code> (whitespace inside the
      * braces is ignored) wherever it appears in the chart's {@code Chart.yaml} and

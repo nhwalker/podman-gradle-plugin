@@ -35,6 +35,37 @@ Point at a non-`PATH` install with `-Ppodman.executable=/path/to/podman` and/or
 > `includeBuild('..')` so the harness can inject the plugin classpath instead). You do not
 > need it for normal runs.
 
+## Lifecycle integration
+
+All three plugins apply Gradle's `lifecycle-base` plugin and, **by default**, wire their
+work into the standard lifecycle tasks:
+
+- `assemble` (and therefore `build`) builds every declared **container image** (and saves
+  its archive when `createArchive` is on), packages every **helm chart**, and builds every
+  **produced generic artifact**.
+- `check` (and therefore `build`) lints every helm chart whose `lint` is on.
+
+Because building images/charts drives the real `podman`/`helm` binaries, a whole-tree
+`./gradlew -p examples build` needs **both** binaries. Run per-project (e.g.
+`:reports:build`, which needs neither) to scope what gets built.
+
+Opt out with the `lifecycleIntegration` flag — project-wide (default `true`) with a
+per-item override:
+
+```groovy
+container {
+    lifecycleIntegration = false            // no image is part of build for this project
+    images {
+        app { lifecycleIntegration = true } // ...except this one
+    }
+}
+helm    { charts  { legacy { lifecycleIntegration = false } } }  // skip this chart
+genericArtifacts { produce { huge { lifecycleIntegration = false } } }
+```
+
+The tasks always remain runnable by name (e.g. `./gradlew buildAppImage`,
+`./gradlew lintLegacyChart`) regardless of this flag.
+
 ## Projects and the features they show
 
 | Project | Plugin | Demonstrates |

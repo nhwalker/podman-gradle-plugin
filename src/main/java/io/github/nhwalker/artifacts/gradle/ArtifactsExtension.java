@@ -72,6 +72,14 @@ public abstract class ArtifactsExtension {
      */
     public abstract Property<String> getReferencesClassName();
 
+    /**
+     * Whether produced artifacts participate in the standard lifecycle tasks by default: when
+     * {@code true} (the default) {@code assemble} (and therefore {@code build}) builds every produced
+     * artifact's backing task. Set to {@code false} to opt the whole project out; individual producers
+     * can override either way via {@link ProducedArtifact#getLifecycleIntegration()}.
+     */
+    public abstract Property<Boolean> getLifecycleIntegration();
+
     /** The classified artifacts this project publishes. */
     public NamedDomainObjectContainer<ProducedArtifact> getProduce() {
         return produce;

@@ -69,6 +69,16 @@ class ExamplesFunctionalSpec extends Specification {
         result.task(':reports:generateArtifactReferences').outcome in [SUCCESS, UP_TO_DATE]
     }
 
+    def "produced artifacts are built by the lifecycle build by default (no podman/helm)"() {
+        when: 'only the standard build runs — none of the consume/download tasks'
+        def result = runner(':reports:build').build()
+
+        then: 'the produce-only bundle (not resource-bundled) is built via produce -> assemble'
+        result.task(':reports:makeBundle').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':reports:makeReport').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':reports:build').outcome in [SUCCESS, UP_TO_DATE]
+    }
+
     @Requires({ ExamplesFunctionalSpec.PODMAN })
     def "the container examples build images, resolve the base-image graph, and generate the Images interface"() {
         when:
@@ -81,6 +91,18 @@ class ExamplesFunctionalSpec extends Specification {
         result.task(':base-image:saveBaseImage').outcome == SUCCESS
     }
 
+    @Requires({ ExamplesFunctionalSpec.PODMAN })
+    def "a container project's build assembles the image and its archive by default"() {
+        when:
+        def result = runner(':base-image:build').build()
+
+        then: 'building the image (and saving its archive, since createArchive is on) is part of assemble'
+        // SUCCESS or UP_TO_DATE: the shared examples build (build cache on) may have built these in an
+        // earlier case; either way their presence in the build graph proves the lifecycle wiring.
+        result.task(':base-image:buildBaseImage').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':base-image:saveBaseImage').outcome in [SUCCESS, UP_TO_DATE]
+    }
+
     @Requires({ ExamplesFunctionalSpec.HELM })
     def "the helm examples lint, package, and aggregate the base chart into the umbrella"() {
         when:
@@ -90,6 +112,18 @@ class ExamplesFunctionalSpec extends Specification {
         result.task(':base-chart:packageBaseChart').outcome == SUCCESS
         result.task(':platform-chart:stagePlatformChart').outcome == SUCCESS
         result.task(':platform-chart:packagePlatformChart').outcome == SUCCESS
+    }
+
+    @Requires({ ExamplesFunctionalSpec.HELM })
+    def "a helm project's build packages the chart (assemble) and lints it (check) by default"() {
+        when:
+        def result = runner(':base-chart:build').build()
+
+        then: 'package is wired into assemble and lint into check, both reached by build'
+        // SUCCESS or UP_TO_DATE: the shared examples build (build cache on) may have run these in an
+        // earlier case; either way their presence in the build graph proves the lifecycle wiring.
+        result.task(':base-chart:packageBaseChart').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':base-chart:lintBaseChart').outcome in [SUCCESS, UP_TO_DATE]
     }
 
     @Requires({ ExamplesFunctionalSpec.PODMAN && ExamplesFunctionalSpec.HELM })

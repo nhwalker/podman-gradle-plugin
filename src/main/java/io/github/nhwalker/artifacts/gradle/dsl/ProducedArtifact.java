@@ -84,6 +84,15 @@ public abstract class ProducedArtifact implements Named {
     /** Free String attributes carried by this artifact's variant (and required of consumers). */
     public abstract MapProperty<String, String> getAttributes();
 
+    /**
+     * Whether this artifact participates in the standard lifecycle tasks (its backing task becomes a
+     * dependency of {@code assemble}). Unset by default, inheriting the project-wide
+     * {@link io.github.nhwalker.artifacts.gradle.ArtifactsExtension#getLifecycleIntegration()} (which
+     * defaults to {@code true}); set explicitly to opt this artifact in or out regardless of the project
+     * default.
+     */
+    public abstract Property<Boolean> getLifecycleIntegration();
+
     /** Adds a single free String attribute. */
     public void attribute(String key, String value) {
         getAttributes().put(key, value);

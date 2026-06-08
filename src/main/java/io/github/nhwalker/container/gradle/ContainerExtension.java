@@ -82,6 +82,16 @@ public abstract class ContainerExtension {
      */
     public abstract Property<String> getReferencesClassName();
 
+    /**
+     * Whether declared images participate in the standard lifecycle tasks by default: when {@code true}
+     * (the default) building {@code assemble} (and therefore {@code build}) builds every image — and
+     * saves its archive when {@link io.github.nhwalker.container.gradle.dsl.ContainerImage#getCreateArchive()
+     * createArchive} is on. Set to {@code false} to opt the whole project out; individual images can
+     * override either way via
+     * {@link io.github.nhwalker.container.gradle.dsl.ContainerImage#getLifecycleIntegration()}.
+     */
+    public abstract Property<Boolean> getLifecycleIntegration();
+
     /** The images declared for this project. */
     public NamedDomainObjectContainer<ContainerImage> getImages() {
         return images;
