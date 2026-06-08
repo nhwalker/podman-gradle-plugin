@@ -13,7 +13,6 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.DependencyScopeConfiguration;
-import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.Directory;
 import org.gradle.api.provider.Provider;
@@ -24,6 +23,7 @@ import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.artifacts.gradle.dsl.ConsumedArtifact;
 import io.github.nhwalker.artifacts.gradle.dsl.ProducedArtifact;
 import io.github.nhwalker.artifacts.gradle.support.LifecycleSupport;
+import io.github.nhwalker.artifacts.gradle.support.PublishingSupport;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 
 /**
@@ -50,7 +50,7 @@ public class ArtifactsPlugin implements Plugin<Project> {
     public static final String EXTENSION_NAME = "genericArtifacts";
 
     /** The name of the software component aggregating this project's artifact variants. */
-    public static final String COMPONENT_NAME = "genericArtifacts";
+    public static final String COMPONENT_NAME = PublishingSupport.AGGREGATE_COMPONENT_NAME;
 
     /** The {@code <Domain>} segment of this plugin's generated interface name. */
     public static final String REFERENCES_DOMAIN = "References";
@@ -78,15 +78,15 @@ public class ArtifactsPlugin implements Plugin<Project> {
 
         ArtifactsDependencies.registerSchema(project);
 
-        // One component aggregates every produced artifact's variant (one module/coordinate),
-        // the same way the java component carries the main + sources/javadoc jars.
-        AdhocComponentWithVariants component = softwareComponentFactory.adhoc(COMPONENT_NAME);
-        project.getComponents().add(component);
+        // One shared component aggregates every produced artifact's variant (one module/coordinate),
+        // the same way the java component carries the main + sources/javadoc jars. Created eagerly so
+        // `components.genericArtifacts` is resolvable in the publishing block.
+        PublishingSupport.registerComponent(project, softwareComponentFactory);
 
         // Materialize each declaration once the DSL is fully evaluated, so final
         // classifier/attribute values are seen before configurations are created.
         project.afterEvaluate(p -> {
-            extension.getProduce().forEach(artifact -> registerProducer(p, extension, artifact, component));
+            extension.getProduce().forEach(artifact -> registerProducer(p, extension, artifact));
             extension.getConsume().forEach(artifact -> registerConsumer(p, artifact));
             // When a Java plugin is applied, expose the resource path of every produced artifact that
             // bundled itself into resources (plus any references{} values) through a generated
@@ -141,8 +141,7 @@ public class ArtifactsPlugin implements Plugin<Project> {
                 + "ArtifactReferences";
     }
 
-    private void registerProducer(Project project, ArtifactsExtension extension, ProducedArtifact artifact,
-            AdhocComponentWithVariants component) {
+    private void registerProducer(Project project, ArtifactsExtension extension, ProducedArtifact artifact) {
         if (artifact.getArtifactSpecs().isEmpty()) {
             throw new InvalidUserDataException(
                     "produced artifact '" + artifact.getName() + "' must declare at least one artifact(...)");
@@ -151,9 +150,12 @@ public class ArtifactsPlugin implements Plugin<Project> {
         Map<String, String> attributes = artifact.getAttributes().get();
         attributes.keySet().forEach(key -> ArtifactsDependencies.registerAttributeKey(project, key));
 
+        boolean defaultArtifact = artifact.getDefaultArtifact().get();
         var elements = ArtifactsDependencies.elements(project,
-                elementsName(artifact.getName()), classifier, attributes, artifact.getArtifactSpecs());
-        component.addVariantsFromConfiguration(elements.get(), details -> { });
+                elementsName(artifact.getName()), classifier, attributes, artifact.getArtifactSpecs(),
+                defaultArtifact);
+        PublishingSupport.addVariants(project, softwareComponentFactory, elements.get(),
+                defaultArtifact ? "produced artifact '" + artifact.getName() + "'" : null);
 
         // Default-on: building the artifact is part of `assemble` (and so `build`). Depend on the
         // outgoing artifact set (Buildable, carrying each artifact's builtBy producing task) rather

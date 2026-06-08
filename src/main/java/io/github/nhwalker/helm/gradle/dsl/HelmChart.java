@@ -67,6 +67,7 @@ public abstract class HelmChart implements Named {
                 project.getLayout().getProjectDirectory().dir("src/main/helm/" + name));
         getLint().convention(true);
         getUpdateDependencies().convention(false);
+        getDefaultArtifact().convention(false);
     }
 
     @Override
@@ -88,6 +89,17 @@ public abstract class HelmChart implements Named {
 
     /** Update {@code Chart.yaml} dependencies before packaging ({@code -u}). Defaults to {@code false}. */
     public abstract Property<Boolean> getUpdateDependencies();
+
+    /**
+     * Whether this chart's package is published as the module's default (unclassified) main artifact,
+     * addressable as the bare {@code group:name:version}, instead of under the {@code <chartName>}
+     * classifier. Defaults to {@code false}. At most one artifact per project (across the
+     * container/helm/artifacts plugins) may be the default; the variant's {@code classifier} attribute is
+     * unaffected, so Gradle attribute selection is unchanged. When the {@code java} plugin is applied, the
+     * jar stays the primary artifact of {@code components.java} and this designation is honored only for
+     * {@code components.genericArtifacts}.
+     */
+    public abstract Property<Boolean> getDefaultArtifact();
 
     /**
      * Whether this chart participates in the standard lifecycle tasks (its package task becomes a

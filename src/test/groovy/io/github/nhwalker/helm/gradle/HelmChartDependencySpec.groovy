@@ -65,8 +65,9 @@ class HelmChartDependencySpec extends Specification {
         artifact.type == 'tgz'
         artifact.classifier == 'api'
 
-        and: 'the project component exists and is adhoc'
-        project.components.findByName('helm') instanceof AdhocComponentWithVariants
+        and: 'the shared aggregate component exists and is adhoc (no per-plugin helm component)'
+        project.components.findByName('genericArtifacts') instanceof AdhocComponentWithVariants
+        project.components.findByName('helm') == null
     }
 
     def "lint = false omits the lint task"() {

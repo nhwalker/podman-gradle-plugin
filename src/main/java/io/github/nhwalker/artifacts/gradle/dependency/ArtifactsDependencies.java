@@ -78,15 +78,33 @@ public final class ArtifactsDependencies {
     public static NamedDomainObjectProvider<ConsumableConfiguration> elements(
             Project project, String configurationName, String classifier,
             Map<String, String> freeAttributes, List<ArtifactSpec> artifacts) {
+        return elements(project, configurationName, classifier, freeAttributes, artifacts, false);
+    }
+
+    /**
+     * Creates a consumable configuration that publishes one classified artifact, optionally as the
+     * module's <em>default</em> (unclassified) artifact.
+     *
+     * <p>The variant-selection {@code classifier} attribute is always set so Gradle attribute selection
+     * is unchanged. The separate Maven <em>file</em> classifier defaults to {@code classifier} so the
+     * published artifact is addressable by classifier in a plain Maven repository too — unless
+     * {@code publishWithoutClassifier} is {@code true}, in which case the file classifier is cleared so
+     * the artifact publishes under the bare {@code group:name:version} (the module's main artifact).
+     */
+    public static NamedDomainObjectProvider<ConsumableConfiguration> elements(
+            Project project, String configurationName, String classifier,
+            Map<String, String> freeAttributes, List<ArtifactSpec> artifacts,
+            boolean publishWithoutClassifier) {
         return project.getConfigurations().consumable(configurationName, cfg -> {
             cfg.getAttributes().attribute(ArtifactsAttributes.ECOSYSTEM, ArtifactsAttributes.ECOSYSTEM_VALUE);
             cfg.getAttributes().attribute(ArtifactsAttributes.CLASSIFIER, classifier);
             applyFreeAttributes(cfg.getAttributes(), freeAttributes);
             for (ArtifactSpec spec : artifacts) {
                 cfg.getOutgoing().artifact(spec.getNotation(), artifact -> {
-                    // Default the Maven classifier to the variant classifier so the published
-                    // artifact is addressable by classifier in a plain Maven repository too.
-                    artifact.setClassifier(classifier);
+                    // Default the Maven file classifier to the variant classifier so the published
+                    // artifact is addressable by classifier in a plain Maven repository too; clear it
+                    // when this is the module's default artifact so the bare GAV resolves to it.
+                    artifact.setClassifier(publishWithoutClassifier ? null : classifier);
                     if (spec.getConfiguration() != null) {
                         spec.getConfiguration().execute(artifact);
                     }

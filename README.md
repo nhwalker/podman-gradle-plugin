@@ -626,8 +626,9 @@ genericArtifacts {
 
 ### Publishing
 
-The plugin contributes one software component, `container`, aggregating **every** image's
-variants. Attach it to a `MavenPublication`:
+The container, helm, and generic-artifacts plugins all contribute their variants to **one
+shared, aggregated software component, `genericArtifacts`** (so a project applying any mix
+of them publishes a single coherent module). Attach it to a `MavenPublication`:
 
 ```groovy
 plugins { id 'io.github.nhwalker.container'; id 'maven-publish' }
@@ -638,12 +639,46 @@ container { images {
     bar { tags = ['example/bar:1.0'] }
 } }
 
-publishing { publications { maven(MavenPublication) { from components.container } } }
+publishing { publications { maven(MavenPublication) { from components.genericArtifacts } } }
 ```
 
 The whole project publishes as one module whose Gradle Module Metadata carries every
 image as an attribute-selected variant (`imageName × imageType`) with distinct artifact
 classifiers, so downstream builds resolve any individual image.
+
+When the `java` plugin is also applied, the image variants are **additionally** folded into
+`components.java`, so a single `from components.java` ships the jar (+ sources/javadoc) and
+the images in one module. Publish exactly one of the two components per repository — both
+resolve to the same `group:name:version`. (The previous per-plugin `components.container`
+component has been **removed**; migrate `from components.container` to
+`from components.genericArtifacts`, or to `from components.java` when publishing alongside
+a jar.)
+
+> **One module, unique coordinates.** Because everything shares one module, no two
+> published artifacts may collide on the same Maven *classifier + extension*. Distinct
+> extensions (txt/tar/tgz/jar) keep the common cases apart; give clashing artifacts
+> distinct names/classifiers across the plugins within a project.
+
+#### A default (unclassified) artifact
+
+By default every variant publishes under a Maven classifier, so the bare
+`group:name:version` has no primary file (unless `java` contributes the jar). Mark one
+artifact as the module's **default** — published without a classifier, addressable as the
+bare GAV — with `defaultArtifact`. For an image, select which of its two artifacts:
+
+```groovy
+container { images { foo {
+    tags = ['example/foo:1.0']; createArchive = true
+    defaultArtifact = 'archive'   // or 'reference'  ->  com.example:foo:1.0 resolves to foo-1.0.tar
+} } }
+```
+
+The variant's `classifier` attribute is unchanged, so Gradle attribute selection is
+unaffected; only the published file's Maven classifier is cleared (and the POM `packaging`
+becomes that artifact's extension). At most **one** artifact per project — across the
+container/helm/artifacts plugins — may be the default; a second is an error. When `java` is
+applied, the jar remains the primary artifact of `components.java`, so `defaultArtifact` is
+meant for the `components.genericArtifacts` publication.
 
 ### Composite builds
 
@@ -850,7 +885,13 @@ helm {
 
 Your `platform/Chart.yaml` still lists the subchart under `dependencies:`; the
 plugin supplies the archive bytes into `charts/`. Publish the charts the same way
-as container images — `from components.helm` in a `MavenPublication`.
+as container images — the chart variants are contributed to the shared
+`genericArtifacts` component (and folded into `components.java` when the `java` plugin is
+applied), so use `from components.genericArtifacts` (or `from components.java`) in a
+`MavenPublication`. (The previous per-plugin `components.helm` component has been
+**removed**; migrate accordingly.) A chart can be the module's default (unclassified)
+artifact with `helm { charts { app { defaultArtifact = true } } }` — see
+[the container Publishing section](#publishing) for the shared rules.
 
 ### Bundling charts in the jar and exposing them to Java
 
@@ -973,9 +1014,18 @@ variants":
   ecosystem. The attributes live in
   `io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes`.
 
-The plugin contributes one software component, `genericArtifacts`, aggregating every
-produced artifact's variant for publishing. Applying the plugin adds **no tasks** — it
-only registers the `genericArtifacts { }` extension and the component.
+The plugin contributes the shared `genericArtifacts` software component, aggregating every
+produced artifact's variant for publishing — the **same** component the container and helm
+plugins contribute to, so a project applying several of them publishes one coherent module.
+When the `java` plugin is applied, the variants are also folded into `components.java`, so
+`from components.java` ships the jar and the produced artifacts together (publish only one
+of the two components per repository). Applying the plugin adds **no tasks** — it only
+registers the `genericArtifacts { }` extension and the component.
+
+A produced artifact can be the module's default (unclassified) artifact — addressable as
+the bare `group:name:version` — with `produce { report { defaultArtifact = true } }`; at
+most one artifact per project (across all three plugins) may be the default. See
+[the container Publishing section](#publishing) for the shared rules.
 
 > **Note on the extension name:** Gradle's `Project` already has a built-in
 > `artifacts { }` method (the `ArtifactHandler`), which would shadow an extension named

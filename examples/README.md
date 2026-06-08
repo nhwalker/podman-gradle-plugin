@@ -70,12 +70,13 @@ The tasks always remain runnable by name (e.g. `./gradlew buildAppImage`,
 
 | Project | Plugin | Demonstrates |
 | --- | --- | --- |
-| `base-image` | container | tags, labels, build args, exported archive variant (`createArchive`), `maven-publish` of `components.container` |
-| `api-service` | container | cross-project base image (`from 'BASE_IMAGE', project(':base-image')`), platform, `javaReference()` → `ApiImages` constants consumed by Java |
+| `base-image` | container | tags, labels, build args, exported archive variant (`createArchive`), `maven-publish` of `components.genericArtifacts` |
+| `api-service` | container | cross-project base image (`from 'BASE_IMAGE', project(':base-image')`), platform, `javaReference()` → `ApiImages` constants consumed by Java; `maven-publish` of `components.java` (jar + image in one module) |
 | `worker-service` | container | intra-project sibling base image (`from 'BASE_IMAGE', images.runtime`), `noCache`/`pull` |
-| `base-chart` | helm | minimal chart, lint, package, `maven-publish` of `components.helm` |
-| `platform-chart` | helm | subchart aggregation (`from project(':base-chart')`), `preValues` substitution, version overrides, `importResourcesTask()` → `PlatformCharts` |
+| `base-chart` | helm | minimal chart, lint, package, `maven-publish` of `components.genericArtifacts` |
+| `platform-chart` | helm | subchart aggregation (`from project(':base-chart')`), `preValues` substitution, version overrides, `importResourcesTask()` → `PlatformCharts`; `maven-publish` of `components.java` (jar + chart in one module) |
 | `reports` | artifacts | `produce`/`consume`, `downloadTask`/`unpackTask`, `importResourcesTask`/`importUnpackedResourcesTask`, `references` → `ReportRefs` (no podman/helm needed) |
+| `combo` | container + helm + artifacts | ★ image + chart + generic artifact in ONE project, published as a single module via `from components.genericArtifacts`; chart marked `defaultArtifact` (the module's bare-GAV main artifact) |
 | `integration-test` | artifacts | ★ aggregates image references + the packaged chart from the projects above for deployment / container testing |
 
 ## The `integration-test` aggregator

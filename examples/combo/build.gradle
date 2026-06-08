@@ -1,0 +1,65 @@
+// combo — the headline capability: the container, helm, and generic-artifacts plugins
+// together in ONE project, published as a single Maven module.
+//
+// Demonstrates: a container image (reference + archive variants), a helm chart, and a
+// produced generic artifact all contributing their variants to the one aggregate
+// `genericArtifacts` software component, published together via
+// `from components.genericArtifacts`. The chart uses `defaultArtifact` to become the
+// module's main (unclassified) artifact, addressable as the bare `group:name:version`.
+plugins {
+    id 'io.github.nhwalker.container'
+    id 'io.github.nhwalker.helm'
+    id 'io.github.nhwalker.artifacts'
+    id 'maven-publish'
+}
+
+container {
+    images {
+        combo {
+            containerfile = layout.projectDirectory.file('src/main/container/Containerfile')
+            contextDirectory = layout.projectDirectory.dir('src/main/container')
+            tags = ['examples/combo:1.0']
+            // Export an archive variant alongside the built image (classifier 'combo', .tar).
+            createArchive = true
+        }
+    }
+}
+
+helm {
+    charts {
+        combo {
+            // chartDirectory defaults to src/main/helm/combo.
+            // Publish the packaged chart as the module's default (unclassified) artifact,
+            // so the bare `io.github.nhwalker.examples:combo:0.1.0` resolves to combo-0.1.0.tgz
+            // in a plain Maven repository. Its `chartName` attribute is unchanged, so Gradle
+            // consumers still select it by attribute exactly as before.
+            defaultArtifact = true
+        }
+    }
+}
+
+def notesFile = layout.buildDirectory.file('combo/notes.txt')
+def makeNotes = tasks.register('makeNotes') {
+    outputs.file(notesFile)
+    doLast { notesFile.get().asFile.text = 'combo example notes\n' }
+}
+
+genericArtifacts {
+    // A plain produced artifact (classifier 'notes'), aggregated into the same module.
+    produce {
+        notes {
+            artifact makeNotes.map { notesFile.get() }
+        }
+    }
+}
+
+publishing {
+    publications {
+        // No `java` here: the aggregate `genericArtifacts` component carries the image
+        // (reference + archive), the chart, and the generic 'notes' artifact — one module.
+        maven(MavenPublication) { from components.genericArtifacts }
+    }
+    repositories {
+        maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }
+    }
+}
