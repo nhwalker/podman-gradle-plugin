@@ -49,6 +49,12 @@ public abstract class ContainerImage implements Named {
     /** Default {@code --build-arg} name used by the single-argument {@code from(...)}. */
     public static final String DEFAULT_BASE_ARG = "BASE_IMAGE";
 
+    /** {@link #getDefaultArtifact() defaultArtifact} value selecting the image archive. */
+    public static final String DEFAULT_ARTIFACT_ARCHIVE = "archive";
+
+    /** {@link #getDefaultArtifact() defaultArtifact} value selecting the image reference file. */
+    public static final String DEFAULT_ARTIFACT_REFERENCE = "reference";
+
     private final String name;
     private final Project project;
     private final ObjectFactory objects;
@@ -109,6 +115,18 @@ public abstract class ContainerImage implements Named {
 
     /** Whether the reference file records the digest-pinned form. Defaults to {@code true}. */
     public abstract Property<Boolean> getIncludeDigest();
+
+    /**
+     * Designates one of this image's artifacts as the module's default (unclassified) main artifact,
+     * addressable as the bare {@code group:name:version} instead of under its classifier:
+     * {@link #DEFAULT_ARTIFACT_ARCHIVE "archive"} (requires {@link #getCreateArchive() createArchive}) or
+     * {@link #DEFAULT_ARTIFACT_REFERENCE "reference"}. Unset by default (neither is the default). At most
+     * one artifact per project (across the container/helm/artifacts plugins) may be the default; the
+     * variant's {@code classifier} attribute is unaffected, so Gradle attribute selection is unchanged.
+     * When the {@code java} plugin is applied, the jar stays the primary artifact of
+     * {@code components.java} and this designation is honored only for {@code components.genericArtifacts}.
+     */
+    public abstract Property<String> getDefaultArtifact();
 
     /**
      * Whether this image participates in the standard lifecycle tasks (its build task, plus its save

@@ -66,8 +66,9 @@ class ContainerImageDependencySpec extends Specification {
         artifact.type == 'txt'
         artifact.classifier == 'foo-reference'
 
-        and: 'the project component exists and is adhoc'
-        project.components.findByName('container') instanceof AdhocComponentWithVariants
+        and: 'the shared aggregate component exists and is adhoc (no per-plugin container component)'
+        project.components.findByName('genericArtifacts') instanceof AdhocComponentWithVariants
+        project.components.findByName('container') == null
     }
 
     def "createArchive adds a save task and an archive-elements consumable"() {

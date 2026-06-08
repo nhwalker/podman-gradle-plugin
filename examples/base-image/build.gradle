@@ -2,7 +2,7 @@
 //
 // Demonstrates: tags (canonical + extra), labels, build args, an exported archive
 // variant (createArchive), and publishing the image's variants as one Maven module
-// via `from components.container`.
+// via `from components.genericArtifacts`.
 plugins {
     id 'io.github.nhwalker.container'
     id 'maven-publish'
@@ -33,7 +33,7 @@ container {
 
 publishing {
     publications {
-        maven(MavenPublication) { from components.container }
+        maven(MavenPublication) { from components.genericArtifacts }
     }
     repositories {
         maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }

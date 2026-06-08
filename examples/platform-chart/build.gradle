@@ -37,7 +37,9 @@ helm {
 
 publishing {
     publications {
-        maven(MavenPublication) { from components.helm }
+        // `java` is applied, so one component carries the jar AND the chart variant:
+        // `from components.java` publishes them all under a single Maven module.
+        maven(MavenPublication) { from components.java }
     }
     repositories {
         maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }

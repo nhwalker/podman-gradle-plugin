@@ -180,7 +180,7 @@ exit 0
                     bar { tags = ['example/bar:1.0'] }
                 }
             }
-            publishing { publications { maven(MavenPublication) { from components.container } } }
+            publishing { publications { maven(MavenPublication) { from components.genericArtifacts } } }
         """
 
         when:

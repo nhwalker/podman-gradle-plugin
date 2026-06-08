@@ -10,7 +10,6 @@ import javax.inject.Inject;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.ProjectLayout;
@@ -21,6 +20,7 @@ import org.gradle.api.tasks.TaskProvider;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.artifacts.gradle.support.LifecycleSupport;
+import io.github.nhwalker.artifacts.gradle.support.PublishingSupport;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 import io.github.nhwalker.helm.gradle.dependency.HelmAttributes;
 import io.github.nhwalker.helm.gradle.dsl.HelmChart;
@@ -53,9 +53,6 @@ public class HelmPlugin implements Plugin<Project> {
 
     /** The task group applied to every helm task. */
     public static final String TASK_GROUP = "helm";
-
-    /** The name of the software component aggregating this project's chart variants. */
-    public static final String COMPONENT_NAME = "helm";
 
     /** The task that generates the {@code main} source set's {@code <ProjectName>Charts} interface. */
     public static final String GENERATE_REFERENCES_TASK = "generateChartReferences";
@@ -109,15 +106,15 @@ public class HelmPlugin implements Plugin<Project> {
         ArtifactsDependencies.registerAttributeKey(project, HelmAttributes.CHART_NAME_KEY);
         ArtifactsDependencies.registerAttributeKey(project, HelmAttributes.CHART_TYPE_KEY);
 
-        // One component aggregates every chart's variants (one module/coordinate),
-        // the same way the java component carries the main + sources/javadoc jars.
-        AdhocComponentWithVariants component = softwareComponentFactory.adhoc(COMPONENT_NAME);
-        project.getComponents().add(component);
+        // One shared component aggregates every chart's variants (one module/coordinate), the same way
+        // the java component carries the main + sources/javadoc jars. Created eagerly so
+        // `components.genericArtifacts` is resolvable in the publishing block.
+        PublishingSupport.registerComponent(project, softwareComponentFactory);
 
         // Materialize each chart's tasks/configs once the DSL is fully evaluated, so
         // structural decisions (e.g. whether a lint task exists) see final values.
         project.afterEvaluate(p -> {
-            extension.getCharts().forEach(chart -> registerChart(p, extension, chart, component));
+            extension.getCharts().forEach(chart -> registerChart(p, extension, chart));
             // When a Java plugin is applied, expose the resource paths of the charts that bundled
             // themselves into resources through a generated interface. No-ops when none bundled.
             if (p.getPluginManager().hasPlugin("java")) {
@@ -150,7 +147,7 @@ public class HelmPlugin implements Plugin<Project> {
     }
 
     private TaskProvider<HelmPackageTask> registerChart(Project project, HelmExtension extension,
-            HelmChart chart, AdhocComponentWithVariants component) {
+            HelmChart chart) {
         String name = chart.getName();
         boolean lifecycle = LifecycleSupport.enabled(
                 chart.getLifecycleIntegration(), extension.getLifecycleIntegration());
@@ -198,6 +195,7 @@ public class HelmPlugin implements Plugin<Project> {
 
         // Package variant: classifier <chart>, free attrs chartName/chartType=package,
         // artifact type tgz with the package task as its build dependency.
+        boolean defaultArtifact = chart.getDefaultArtifact().get();
         var packageElements = ArtifactsDependencies.elements(project,
                 HelmChart.packageElementsName(name), name,
                 Map.of(HelmAttributes.CHART_NAME_KEY, name,
@@ -207,8 +205,10 @@ public class HelmPlugin implements Plugin<Project> {
                         artifact -> {
                             artifact.setType("tgz");
                             artifact.builtBy(packageTask);
-                        })));
-        component.addVariantsFromConfiguration(packageElements.get(), details -> { });
+                        })),
+                defaultArtifact);
+        PublishingSupport.addVariants(project, softwareComponentFactory, packageElements.get(),
+                defaultArtifact ? "helm chart '" + name + "'" : null);
         return packageTask;
     }
 }

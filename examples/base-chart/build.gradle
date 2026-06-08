@@ -2,7 +2,7 @@
 // and published as a Maven module. It is aggregated as a subchart by :platform-chart.
 //
 // Demonstrates: chart lint + package, and publishing the chart's package variant via
-// `from components.helm`.
+// `from components.genericArtifacts`.
 plugins {
     id 'io.github.nhwalker.helm'
     id 'maven-publish'
@@ -19,7 +19,7 @@ helm {
 
 publishing {
     publications {
-        maven(MavenPublication) { from components.helm }
+        maven(MavenPublication) { from components.genericArtifacts }
     }
     repositories {
         maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }

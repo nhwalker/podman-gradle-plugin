@@ -16,7 +16,6 @@ import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.ProjectLayout;
@@ -29,6 +28,7 @@ import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.artifacts.gradle.support.LifecycleSupport;
+import io.github.nhwalker.artifacts.gradle.support.PublishingSupport;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
@@ -55,9 +55,6 @@ public class ContainerPlugin implements Plugin<Project> {
 
     /** The task group applied to every container task. */
     public static final String TASK_GROUP = "container";
-
-    /** The name of the software component aggregating this project's image variants. */
-    public static final String COMPONENT_NAME = "container";
 
     /** The task that generates the {@code main} source set's {@code <ProjectName>Images} Java interface. */
     public static final String GENERATE_REFERENCES_TASK = "generateImageReferences";
@@ -117,17 +114,17 @@ public class ContainerPlugin implements Plugin<Project> {
                 .attribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.ARCHIVE_FORMAT_KEY))
                 .getDisambiguationRules().add(ContainerAttributes.ArchiveFormatDefaultRule.class);
 
-        // One component aggregates every image's variants (one module/coordinate),
-        // the same way the java component carries the main + sources/javadoc jars.
-        AdhocComponentWithVariants component = softwareComponentFactory.adhoc(COMPONENT_NAME);
-        project.getComponents().add(component);
+        // One shared component aggregates every image's variants (one module/coordinate), the same way
+        // the java component carries the main + sources/javadoc jars. Created eagerly so
+        // `components.genericArtifacts` is resolvable in the publishing block.
+        PublishingSupport.registerComponent(project, softwareComponentFactory);
 
         // Materialize each image's tasks/configs once the DSL is fully evaluated, so
         // structural decisions (e.g. whether an archive variant exists) see final values.
         project.afterEvaluate(p -> {
             Map<String, TaskProvider<ContainerImageReferenceTask>> referenceTasks = new LinkedHashMap<>();
             extension.getImages().forEach(image ->
-                    referenceTasks.put(image.getName(), registerImage(p, extension, image, component)));
+                    referenceTasks.put(image.getName(), registerImage(p, extension, image)));
             // When a Java plugin is applied, expose each opted-in image's reference to Java code
             // through a generated interface (per target source set). No-ops when nothing opted in.
             if (p.getPluginManager().hasPlugin("java")) {
@@ -194,8 +191,32 @@ public class ContainerPlugin implements Plugin<Project> {
         }
     }
 
+    /**
+     * Validates and returns the image's {@code defaultArtifact} selector ({@code archive}/{@code
+     * reference}), or {@code null} when none is designated. Rejects unknown values and {@code archive}
+     * without {@code createArchive}.
+     */
+    private static String resolveDefaultArtifact(ContainerImage image, boolean createArchive) {
+        String selector = image.getDefaultArtifact().getOrNull();
+        if (selector == null) {
+            return null;
+        }
+        if (!ContainerImage.DEFAULT_ARTIFACT_ARCHIVE.equals(selector)
+                && !ContainerImage.DEFAULT_ARTIFACT_REFERENCE.equals(selector)) {
+            throw new InvalidUserDataException("container image '" + image.getName()
+                    + "' defaultArtifact must be '" + ContainerImage.DEFAULT_ARTIFACT_ARCHIVE + "' or '"
+                    + ContainerImage.DEFAULT_ARTIFACT_REFERENCE + "', but was '" + selector + "'");
+        }
+        if (ContainerImage.DEFAULT_ARTIFACT_ARCHIVE.equals(selector) && !createArchive) {
+            throw new InvalidUserDataException("container image '" + image.getName()
+                    + "' defaultArtifact '" + ContainerImage.DEFAULT_ARTIFACT_ARCHIVE
+                    + "' requires createArchive = true");
+        }
+        return selector;
+    }
+
     private TaskProvider<ContainerImageReferenceTask> registerImage(Project project,
-            ContainerExtension extension, ContainerImage image, AdhocComponentWithVariants component) {
+            ContainerExtension extension, ContainerImage image) {
         String name = image.getName();
         boolean lifecycle = LifecycleSupport.enabled(
                 image.getLifecycleIntegration(), extension.getLifecycleIntegration());
@@ -203,6 +224,10 @@ public class ContainerPlugin implements Plugin<Project> {
             throw new InvalidUserDataException(
                     "container image '" + name + "' must declare at least one tag");
         }
+        boolean createArchive = image.getCreateArchive().get();
+        String defaultArtifact = resolveDefaultArtifact(image, createArchive);
+        boolean referenceIsDefault = ContainerImage.DEFAULT_ARTIFACT_REFERENCE.equals(defaultArtifact);
+        boolean archiveIsDefault = ContainerImage.DEFAULT_ARTIFACT_ARCHIVE.equals(defaultArtifact);
         ProjectLayout layout = project.getLayout();
         Provider<String> primaryTag = image.getTags().map(tags -> tags.get(0));
 
@@ -247,10 +272,12 @@ public class ContainerPlugin implements Plugin<Project> {
                         artifact -> {
                             artifact.setType("txt");
                             artifact.builtBy(referenceTask);
-                        })));
-        component.addVariantsFromConfiguration(referenceElements.get(), details -> { });
+                        })),
+                referenceIsDefault);
+        PublishingSupport.addVariants(project, softwareComponentFactory, referenceElements.get(),
+                referenceIsDefault ? "container image '" + name + "' reference" : null);
 
-        if (image.getCreateArchive().get()) {
+        if (createArchive) {
             String format = image.getArchiveFormat().getOrElse(ContainerAttributes.ARCHIVE_FORMAT_OCI);
             var saveTask = project.getTasks().register(ContainerImage.saveTaskName(name), ContainerSaveTask.class, t -> {
                 t.dependsOn(buildTask);
@@ -279,8 +306,10 @@ public class ContainerPlugin implements Plugin<Project> {
                             artifact -> {
                                 artifact.setType("tar");
                                 artifact.builtBy(saveTask);
-                            })));
-            component.addVariantsFromConfiguration(archiveElements.get(), details -> { });
+                            })),
+                    archiveIsDefault);
+            PublishingSupport.addVariants(project, softwareComponentFactory, archiveElements.get(),
+                    archiveIsDefault ? "container image '" + name + "' archive" : null);
             if (lifecycle) {
                 LifecycleSupport.assembleDependsOn(project, saveTask);
             }

@@ -71,6 +71,7 @@ public abstract class ProducedArtifact implements Named {
         this.name = name;
         this.project = project;
         getClassifier().convention(name);
+        getDefaultArtifact().convention(false);
     }
 
     @Override
@@ -83,6 +84,17 @@ public abstract class ProducedArtifact implements Named {
 
     /** Free String attributes carried by this artifact's variant (and required of consumers). */
     public abstract MapProperty<String, String> getAttributes();
+
+    /**
+     * Whether this artifact is published as the module's default (unclassified) main artifact, addressable
+     * as the bare {@code group:name:version}, instead of under its {@link #getClassifier() classifier}.
+     * Defaults to {@code false}. At most one artifact per project (across the container/helm/artifacts
+     * plugins) may be the default; the variant's {@code classifier} attribute is unaffected, so Gradle
+     * attribute selection is unchanged. When the {@code java} plugin is applied, the jar stays the primary
+     * artifact of {@code components.java} and this designation is honored only for
+     * {@code components.genericArtifacts}.
+     */
+    public abstract Property<Boolean> getDefaultArtifact();
 
     /**
      * Whether this artifact participates in the standard lifecycle tasks (its backing task becomes a
