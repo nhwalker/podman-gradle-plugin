@@ -9,6 +9,7 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
+import io.github.nhwalker.container.gradle.dsl.ContainerArchive;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 
 /**
@@ -31,13 +32,16 @@ import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 public abstract class ContainerExtension {
 
     private final NamedDomainObjectContainer<ContainerImage> images;
+    private final NamedDomainObjectContainer<ContainerArchive> archives;
 
     @Inject
     public ContainerExtension(ObjectFactory objects, Project project) {
-        // ContainerImage needs the Project to create its dependency configurations, so
-        // the container uses a custom element factory rather than Gradle's default.
+        // ContainerImage/ContainerArchive need the Project to create their dependency configurations,
+        // so the containers use a custom element factory rather than Gradle's default.
         this.images = objects.domainObjectContainer(ContainerImage.class,
                 name -> objects.newInstance(ContainerImage.class, name, project));
+        this.archives = objects.domainObjectContainer(ContainerArchive.class,
+                name -> objects.newInstance(ContainerArchive.class, name, project));
     }
 
     /**
@@ -100,5 +104,15 @@ public abstract class ContainerExtension {
     /** Configures the {@link #getImages() images} container. */
     public void images(Action<? super NamedDomainObjectContainer<ContainerImage>> action) {
         action.execute(images);
+    }
+
+    /** The multi-image archives declared for this project. */
+    public NamedDomainObjectContainer<ContainerArchive> getArchives() {
+        return archives;
+    }
+
+    /** Configures the {@link #getArchives() archives} container. */
+    public void archives(Action<? super NamedDomainObjectContainer<ContainerArchive>> action) {
+        action.execute(archives);
     }
 }

@@ -148,6 +148,69 @@ class ContainerImageDependencySpec extends Specification {
         buildApp.baseImages.get()[0].argName.get() == 'BASE_IMAGE'
     }
 
+    def "an archive creates a save task and a bundle-elements archive consumable"() {
+        given:
+        project.container {
+            images { base { tags = ['example/base:1.0'] } }
+            archives { bundle { image images.base } }
+        }
+
+        when:
+        evaluate()
+
+        then: 'a save<Name>Archive task and a consumable bundle-elements config exist'
+        project.tasks.findByName('saveBundleArchive') != null
+        def cfg = project.configurations.getByName('bundleArchiveBundleElements')
+        cfg.canBeConsumed && !cfg.canBeResolved
+        cfg.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == 'bundle'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_NAME_KEY)) == 'bundle'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_TYPE_KEY)) ==
+                ContainerAttributes.IMAGE_TYPE_ARCHIVE
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.ARCHIVE_FORMAT_KEY)) ==
+                ContainerAttributes.ARCHIVE_FORMAT_OCI
+
+        and: 'the outgoing artifact is the bundle tar classified <archive>'
+        def artifact = cfg.outgoing.artifacts.first()
+        artifact.type == 'tar'
+        artifact.classifier == 'bundle'
+    }
+
+    def "an archive defaultArtifact clears the file classifier but keeps the classifier attribute"() {
+        given:
+        project.container {
+            images { base { tags = ['example/base:1.0'] } }
+            archives { bundle { image images.base; defaultArtifact = true } }
+        }
+
+        when:
+        evaluate()
+
+        then: 'the variant still selects on classifier=bundle, but the published file is unclassified (bare GAV)'
+        def cfg = project.configurations.getByName('bundleArchiveBundleElements')
+        cfg.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == 'bundle'
+        cfg.outgoing.artifacts.first().classifier == null
+    }
+
+    def "an archive whose name collides with an image is rejected"() {
+        given:
+        project.container {
+            images { foo { tags = ['example/foo:1.0'] } }
+            archives { foo { image images.foo } }
+        }
+
+        when:
+        evaluate()
+
+        then:
+        def e = thrown(Exception)
+        def root = e
+        while (root.cause != null) {
+            root = root.cause
+        }
+        root instanceof org.gradle.api.InvalidUserDataException
+        root.message.contains('collides with image')
+    }
+
     def "a multi-image consumable carries the default implicit project capability (no custom capability)"() {
         given:
         project.container { images { foo { tags = ['example/foo:1.0'] }; bar { tags = ['example/bar:1.0'] } } }

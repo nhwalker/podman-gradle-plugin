@@ -603,6 +603,44 @@ tasks.register('loadBase', io.github.nhwalker.container.gradle.tasks.ContainerLo
 }
 ```
 
+### Multi-image archives (`archives { }`)
+
+Where per-image `createArchive` exports **one tar per image**, the `container { archives { } }`
+container bundles **several images into one tar** with a single `podman save img1 img2 …` — the
+"offline bundle you `podman load` in one shot" shape. Each archive gets a `save<Name>Archive` task
+and publishes as an `archive` variant of the same aggregated component (classifier defaulting to the
+archive name; `imageName=<archive>`, `imageType=archive`, `archiveFormat=<format>`), selectable
+exactly like a single-image archive.
+
+Members are a free combination, saved in declaration order:
+
+```groovy
+container {
+    images { app { /* … */ } }
+    archives {
+        bundle {
+            image images.app                              // a sibling image in this project
+            from project(':base')                         // a cross-project image reference
+            from project(':multi'), 'runtime'             // one image of a multi-image producer
+            referenceFile file('refs/legacy-ref.txt')     // a published name:tag@digest file
+            image 'docker.io/library/alpine:3.20'         // an arbitrary literal image
+
+            // format          = 'oci-archive' // default; 'docker-archive' also supported
+            // pullPolicy      = 'missing'     // default; passed to `podman pull --policy`
+            // defaultArtifact = true          // publish the bundle as the bare-GAV main artifact
+        }
+    }
+}
+```
+
+Reference-backed members (`image(sibling)`, `from(...)`, `referenceFile(...)`) carry the producing
+image's digest, so the archive **re-saves when their content changes** — the same content-pinning a
+single-image archive uses. Literal members (`image('name:tag')`) are pinned only by their tag string.
+Before saving, the task runs one `podman pull --policy <pullPolicy>` (default `missing`) over the
+members, fetching anything not already in local storage; this runs only when the task executes, so it
+never affects the up-to-date check. (`always`/`newer` fail for local-only tags like sibling images;
+`never` errors if a member is absent.)
+
 ### Aggregate & push
 
 An aggregator project depends on several image projects and iterates the resolved

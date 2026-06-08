@@ -245,6 +245,99 @@ exit 0
         third.task(':saveAppImage').outcome == SUCCESS
     }
 
+    def "an archive saves several images into one tar, pulling missing members first"() {
+        given:
+        def fake = fakeContainer(dir)
+        new File(dir, 'settings.gradle') << "rootProject.name='bundle'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.container' }
+            container {
+                executable = '${fake.absolutePath}'
+                images {
+                    base { tags = ['base:1'] }
+                    app  { tags = ['app:1'] }
+                }
+                archives {
+                    bundle {
+                        image images.base
+                        image images.app
+                        image 'docker.io/library/alpine:3.20'
+                    }
+                }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'saveBundleArchive').build()
+
+        then: 'both sibling images are built and the bundle is saved'
+        result.task(':buildBaseImage').outcome == SUCCESS
+        result.task(':buildAppImage').outcome == SUCCESS
+        result.task(':saveBundleArchive').outcome == SUCCESS
+
+        and: 'one pull --policy missing covers every member, then one save bundles them in order'
+        argsLog.readLines().any {
+            it.startsWith('pull --policy missing') && it.contains('base:1') && it.contains('app:1') &&
+                    it.contains('docker.io/library/alpine:3.20')
+        }
+        argsLog.readLines().any {
+            it.startsWith('save --format oci-archive -o') &&
+                    it.trim().endsWith('base:1 app:1 docker.io/library/alpine:3.20')
+        }
+
+        and: 'the single combined archive was written'
+        new File(dir, 'build/container/archives/bundle/bundle.oci.tar').exists()
+    }
+
+    def "the archive pull policy is passed through to podman pull"() {
+        given:
+        def fake = fakeContainer(dir)
+        new File(dir, 'settings.gradle') << "rootProject.name='bundle'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.container' }
+            container {
+                executable = '${fake.absolutePath}'
+                images { base { tags = ['base:1'] } }
+                archives { bundle { image images.base; pullPolicy = 'always' } }
+            }
+        """
+
+        when:
+        runner(dir, 'saveBundleArchive').build()
+
+        then:
+        argsLog.readLines().any { it.startsWith('pull --policy always') && it.contains('base:1') }
+    }
+
+    def "publishes the multi-image archive as an archive variant of the aggregate component"() {
+        given:
+        def fake = fakeContainer(dir)
+        new File(dir, 'settings.gradle') << "rootProject.name='platform'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'io.github.nhwalker.container'; id 'maven-publish' }
+            group = 'com.example'
+            version = '1.0'
+            container {
+                executable = '${fake.absolutePath}'
+                images { base { tags = ['example/base:1.0'] } }
+                archives { bundle { image images.base } }
+            }
+            publishing {
+                publications { maven(MavenPublication) { from components.genericArtifacts } }
+                repositories { maven { name = 'repo'; url = layout.buildDirectory.dir('repo') } }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateMetadataFileForMavenPublication').build()
+
+        then: 'the module carries the bundle as an imageName=bundle, imageType=archive variant'
+        result.task(':generateMetadataFileForMavenPublication').outcome == SUCCESS
+        def module = new File(dir, 'build/publications/maven/module.json').text
+        module.contains('"io.github.nhwalker.container.imageName": "bundle"')
+        module.contains('"io.github.nhwalker.container.imageType": "archive"')
+    }
+
     def "a composite build substitutes an external coordinate with an included project, no substitution rules"() {
         given: 'a standalone producer build (its own dir) addressed by group:name'
         def producer = new File(dir, 'producer')

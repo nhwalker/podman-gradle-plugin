@@ -108,16 +108,17 @@ class ExamplesFunctionalSpec extends Specification {
         when:
         def result = runner(':multi-image-archive:publishMavenPublicationToLocalExamplesRepository').build()
 
-        then: 'both producer images are built and inspected, then saved into the single bundle and published'
+        then: 'the member images are built, then saved into the single bundle and published'
         result.task(':base-image:buildBaseImage').outcome in [SUCCESS, UP_TO_DATE]
         result.task(':worker-service:buildWorkerImage').outcome in [SUCCESS, UP_TO_DATE]
-        result.task(':multi-image-archive:saveImageBundle').outcome == SUCCESS
+        result.task(':multi-image-archive:buildAppImage').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':multi-image-archive:saveBundleArchive').outcome == SUCCESS
         result.task(':multi-image-archive:publishMavenPublicationToLocalExamplesRepository').outcome == SUCCESS
 
-        and: 'the published module carries the combined archive under the image-bundle classifier'
+        and: 'the published module carries the combined archive under the bundle classifier'
         new File(examplesDir(),
                 'multi-image-archive/build/repo/io/github/nhwalker/examples/multi-image-archive/0.1.0/'
-                        + 'multi-image-archive-0.1.0-image-bundle.tar').exists()
+                        + 'multi-image-archive-0.1.0-bundle.tar').exists()
     }
 
     @Requires({ ExamplesFunctionalSpec.HELM })

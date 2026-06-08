@@ -88,6 +88,7 @@ exit 0
         boolean createArchive = opts.get('createArchive', true)
         boolean chartDefault = opts.get('chartDefault', false)
         String imageDefault = opts.get('imageDefault', null)
+        boolean archive = opts.get('archive', false)
         writeContainerfile()
         writeChart('svc')
         new File(dir, 'build.gradle') << """
@@ -111,6 +112,7 @@ exit 0
                     ${createArchive ? 'createArchive = true' : ''}
                     ${imageDefault != null ? "defaultArtifact = '${imageDefault}'" : ''}
                 } }
+                ${archive ? 'archives { allImages { image images.app } }' : ''}
             }
 
             helm {
@@ -270,6 +272,26 @@ exit 0
         new File(repoDir(), 'platform-1.0.tar').exists()
         !new File(repoDir(), 'platform-1.0-app.tar').exists()
         moduleJson().contains('"io.github.nhwalker.container.imageType": "archive"')
+    }
+
+    def "a multi-image archive variant folds into components.java alongside the jar and image variants"() {
+        given:
+        writeProject(java: true, component: 'java', archive: true)
+
+        when:
+        def result = runner('publishMavenPublicationToTestRepository').build()
+
+        then: 'the multi-image archive is saved and published in the one module'
+        result.task(':publishMavenPublicationToTestRepository').outcome == SUCCESS
+        result.task(':saveAllImagesArchive').outcome == SUCCESS
+
+        and: 'the module carries the jar plus the bundle variant (imageName=allImages, imageType=archive)'
+        def module = moduleJson()
+        module.contains('"name": "runtimeElements"')
+        module.contains('"io.github.nhwalker.container.imageName": "allImages"')
+        module.contains('"io.github.nhwalker.container.imageType": "archive"')
+        new File(repoDir(), 'platform-1.0.jar').exists()
+        new File(repoDir(), 'platform-1.0-allImages.tar').exists()
     }
 
     def "designating two default artifacts across plugins fails, naming both"() {
