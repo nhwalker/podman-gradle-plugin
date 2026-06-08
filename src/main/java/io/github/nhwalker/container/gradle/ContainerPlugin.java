@@ -28,6 +28,7 @@ import org.gradle.api.tasks.TaskProvider;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsAttributes;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.artifacts.gradle.support.LifecycleSupport;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
@@ -92,6 +93,11 @@ public class ContainerPlugin implements Plugin<Project> {
                 project.provider(() -> String.valueOf(project.getGroup())));
         extension.getReferencesClassName().convention(project.provider(() ->
                 ResourceImports.defaultReferencesBaseName(project.getName(), REFERENCES_DOMAIN)));
+        extension.getLifecycleIntegration().convention(true);
+
+        // Contribute assemble/check/build/clean so images can be wired into the standard build,
+        // even in a project that does not also apply the java/base plugin (idempotent if it does).
+        project.getPluginManager().apply(org.gradle.language.base.plugins.LifecycleBasePlugin.class);
 
         project.getTasks().withType(AbstractContainerTask.class).configureEach(task -> {
             task.setGroup(TASK_GROUP);
@@ -121,7 +127,7 @@ public class ContainerPlugin implements Plugin<Project> {
         project.afterEvaluate(p -> {
             Map<String, TaskProvider<ContainerImageReferenceTask>> referenceTasks = new LinkedHashMap<>();
             extension.getImages().forEach(image ->
-                    referenceTasks.put(image.getName(), registerImage(p, image, component)));
+                    referenceTasks.put(image.getName(), registerImage(p, extension, image, component)));
             // When a Java plugin is applied, expose each opted-in image's reference to Java code
             // through a generated interface (per target source set). No-ops when nothing opted in.
             if (p.getPluginManager().hasPlugin("java")) {
@@ -188,9 +194,11 @@ public class ContainerPlugin implements Plugin<Project> {
         }
     }
 
-    private TaskProvider<ContainerImageReferenceTask> registerImage(Project project, ContainerImage image,
-            AdhocComponentWithVariants component) {
+    private TaskProvider<ContainerImageReferenceTask> registerImage(Project project,
+            ContainerExtension extension, ContainerImage image, AdhocComponentWithVariants component) {
         String name = image.getName();
+        boolean lifecycle = LifecycleSupport.enabled(
+                image.getLifecycleIntegration(), extension.getLifecycleIntegration());
         if (image.getTags().getOrElse(java.util.List.of()).isEmpty()) {
             throw new InvalidUserDataException(
                     "container image '" + name + "' must declare at least one tag");
@@ -211,6 +219,13 @@ public class ContainerPlugin implements Plugin<Project> {
             t.getPull().convention(image.getPull());
             t.getBaseImages().convention(image.getBaseImages());
         });
+
+        // Default-on: building the image is part of `assemble` (and so `build`). Opt out per project
+        // (extension) or per image (image.lifecycleIntegration). The archive, when created, is wired
+        // below so `assemble` also produces it.
+        if (lifecycle) {
+            LifecycleSupport.assembleDependsOn(project, buildTask);
+        }
 
         var referenceTask = project.getTasks().register(
                 ContainerImage.referenceTaskName(name), ContainerImageReferenceTask.class, t -> {
@@ -266,6 +281,9 @@ public class ContainerPlugin implements Plugin<Project> {
                                 artifact.builtBy(saveTask);
                             })));
             component.addVariantsFromConfiguration(archiveElements.get(), details -> { });
+            if (lifecycle) {
+                LifecycleSupport.assembleDependsOn(project, saveTask);
+            }
         }
         return referenceTask;
     }

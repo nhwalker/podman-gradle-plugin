@@ -20,6 +20,7 @@ import org.gradle.api.tasks.TaskProvider;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.artifacts.gradle.support.LifecycleSupport;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 import io.github.nhwalker.helm.gradle.dependency.HelmAttributes;
 import io.github.nhwalker.helm.gradle.dsl.HelmChart;
@@ -90,6 +91,11 @@ public class HelmPlugin implements Plugin<Project> {
                 project.provider(() -> String.valueOf(project.getGroup())));
         extension.getReferencesClassName().convention(project.provider(() ->
                 ResourceImports.defaultReferencesBaseName(project.getName(), REFERENCES_DOMAIN)));
+        extension.getLifecycleIntegration().convention(true);
+
+        // Contribute assemble/check/build/clean so charts can be wired into the standard build,
+        // even in a project that does not also apply the java/base plugin (idempotent if it does).
+        project.getPluginManager().apply(org.gradle.language.base.plugins.LifecycleBasePlugin.class);
 
         project.getTasks().withType(AbstractHelmTask.class).configureEach(task -> {
             task.setGroup(TASK_GROUP);
@@ -111,7 +117,7 @@ public class HelmPlugin implements Plugin<Project> {
         // Materialize each chart's tasks/configs once the DSL is fully evaluated, so
         // structural decisions (e.g. whether a lint task exists) see final values.
         project.afterEvaluate(p -> {
-            extension.getCharts().forEach(chart -> registerChart(p, chart, component));
+            extension.getCharts().forEach(chart -> registerChart(p, extension, chart, component));
             // When a Java plugin is applied, expose the resource paths of the charts that bundled
             // themselves into resources through a generated interface. No-ops when none bundled.
             if (p.getPluginManager().hasPlugin("java")) {
@@ -143,9 +149,11 @@ public class HelmPlugin implements Plugin<Project> {
         });
     }
 
-    private TaskProvider<HelmPackageTask> registerChart(Project project, HelmChart chart,
-            AdhocComponentWithVariants component) {
+    private TaskProvider<HelmPackageTask> registerChart(Project project, HelmExtension extension,
+            HelmChart chart, AdhocComponentWithVariants component) {
         String name = chart.getName();
+        boolean lifecycle = LifecycleSupport.enabled(
+                chart.getLifecycleIntegration(), extension.getLifecycleIntegration());
         ProjectLayout layout = project.getLayout();
         Provider<Directory> stagedDir = layout.getBuildDirectory().dir(HelmChart.stagedChartPath(name));
 
@@ -171,11 +179,21 @@ public class HelmPlugin implements Plugin<Project> {
             t.getPackagedChart().convention(layout.getBuildDirectory().file(HelmChart.packagedChartPath(name)));
         });
 
+        // Default-on: packaging the chart is part of `assemble` (and so `build`). Opt out per project
+        // (extension) or per chart (chart.lifecycleIntegration).
+        if (lifecycle) {
+            LifecycleSupport.assembleDependsOn(project, packageTask);
+        }
+
         if (chart.getLint().get()) {
-            project.getTasks().register(HelmChart.lintTaskName(name), HelmLintTask.class, t -> {
+            var lintTask = project.getTasks().register(HelmChart.lintTaskName(name), HelmLintTask.class, t -> {
                 t.setDescription("Lints the '" + name + "' chart with helm lint.");
                 t.getChartDirectory().convention(staged);
             });
+            // Default-on: linting is a verification task, wired into `check`.
+            if (lifecycle) {
+                LifecycleSupport.checkDependsOn(project, lintTask);
+            }
         }
 
         // Package variant: classifier <chart>, free attrs chartName/chartType=package,

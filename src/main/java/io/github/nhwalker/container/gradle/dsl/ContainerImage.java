@@ -110,6 +110,16 @@ public abstract class ContainerImage implements Named {
     /** Whether the reference file records the digest-pinned form. Defaults to {@code true}. */
     public abstract Property<Boolean> getIncludeDigest();
 
+    /**
+     * Whether this image participates in the standard lifecycle tasks (its build task, plus its save
+     * task when {@link #getCreateArchive() createArchive} is on, become dependencies of {@code assemble}).
+     * Unset by default, inheriting the project-wide
+     * {@link io.github.nhwalker.container.gradle.ContainerExtension#getLifecycleIntegration()} (which
+     * defaults to {@code true}); set explicitly to opt this image in or out regardless of the project
+     * default.
+     */
+    public abstract Property<Boolean> getLifecycleIntegration();
+
     /** The base-image dependencies declared via {@code from(...)}. Wired into the build task. */
     public abstract ListProperty<BaseImageReference> getBaseImages();
 

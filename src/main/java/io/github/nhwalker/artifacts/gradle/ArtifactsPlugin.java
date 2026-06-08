@@ -23,6 +23,7 @@ import org.gradle.api.tasks.TaskProvider;
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
 import io.github.nhwalker.artifacts.gradle.dsl.ConsumedArtifact;
 import io.github.nhwalker.artifacts.gradle.dsl.ProducedArtifact;
+import io.github.nhwalker.artifacts.gradle.support.LifecycleSupport;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 
 /**
@@ -69,6 +70,11 @@ public class ArtifactsPlugin implements Plugin<Project> {
                 project.provider(() -> String.valueOf(project.getGroup())));
         extension.getReferencesClassName().convention(project.provider(() ->
                 ResourceImports.defaultReferencesBaseName(project.getName(), REFERENCES_DOMAIN)));
+        extension.getLifecycleIntegration().convention(true);
+
+        // Contribute assemble/check/build/clean so produced artifacts can be wired into the standard
+        // build, even in a project that does not also apply the java/base plugin (idempotent if it does).
+        project.getPluginManager().apply(org.gradle.language.base.plugins.LifecycleBasePlugin.class);
 
         ArtifactsDependencies.registerSchema(project);
 
@@ -80,7 +86,7 @@ public class ArtifactsPlugin implements Plugin<Project> {
         // Materialize each declaration once the DSL is fully evaluated, so final
         // classifier/attribute values are seen before configurations are created.
         project.afterEvaluate(p -> {
-            extension.getProduce().forEach(artifact -> registerProducer(p, artifact, component));
+            extension.getProduce().forEach(artifact -> registerProducer(p, extension, artifact, component));
             extension.getConsume().forEach(artifact -> registerConsumer(p, artifact));
             // When a Java plugin is applied, expose the resource path of every produced artifact that
             // bundled itself into resources (plus any references{} values) through a generated
@@ -135,7 +141,7 @@ public class ArtifactsPlugin implements Plugin<Project> {
                 + "ArtifactReferences";
     }
 
-    private void registerProducer(Project project, ProducedArtifact artifact,
+    private void registerProducer(Project project, ArtifactsExtension extension, ProducedArtifact artifact,
             AdhocComponentWithVariants component) {
         if (artifact.getArtifactSpecs().isEmpty()) {
             throw new InvalidUserDataException(
@@ -148,6 +154,14 @@ public class ArtifactsPlugin implements Plugin<Project> {
         var elements = ArtifactsDependencies.elements(project,
                 elementsName(artifact.getName()), classifier, attributes, artifact.getArtifactSpecs());
         component.addVariantsFromConfiguration(elements.get(), details -> { });
+
+        // Default-on: building the artifact is part of `assemble` (and so `build`). Depend on the
+        // outgoing artifact set (Buildable, carrying each artifact's builtBy producing task) rather
+        // than the consumable configuration itself, which cannot be resolved/depended on directly.
+        // Opt out per project (extension) or per artifact (artifact.lifecycleIntegration).
+        if (LifecycleSupport.enabled(artifact.getLifecycleIntegration(), extension.getLifecycleIntegration())) {
+            LifecycleSupport.assembleDependsOn(project, elements.get().getOutgoing().getArtifacts());
+        }
     }
 
     private void registerConsumer(Project project, ConsumedArtifact artifact) {
