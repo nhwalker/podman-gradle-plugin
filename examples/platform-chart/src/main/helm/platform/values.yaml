@@ -1,0 +1,4 @@
+api:
+  # Replaced at stage time from the chart's preValues.
+  image: {{ .PreValues.ApiImage }}
+  replicaCount: 1

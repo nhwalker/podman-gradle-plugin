@@ -520,6 +520,63 @@ class ArtifactsFunctionalSpec extends Specification {
         text.contains('public static final String REPORT = FixtureReferencesLoader.load("REPORT", "reports/report.txt");')
     }
 
+    def "the produced-bundle references interface is configuration-cache compatible on a clean build"() {
+        given: 'a produced artifact bundled into resources, generating a resource-path constant'
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            def reportFile = layout.buildDirectory.file('report.txt')
+            def makeReport = tasks.register('makeReport') { outputs.file(reportFile); doLast { reportFile.get().asFile.text = 'produced' } }
+            genericArtifacts {
+                produce { report { artifact makeReport.map { reportFile.get() }; importResourcesTask() } }
+                references { schemaVersion { value 'v3' } }
+            }
+        """
+
+        when: 'a CLEAN build with the configuration cache (the bundle has not run at store time)'
+        def first = runner(dir, 'generateArtifactReferences', '--configuration-cache').build()
+
+        then: 'the bundle ran ahead of generation and its resource path resolved (not skipped/collapsed)'
+        first.task(':importReportResources').outcome == SUCCESS
+        first.task(':generateArtifactReferences').outcome == SUCCESS
+        def generated = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+        generated.contains('public static final String REPORT = FixtureReferencesLoader.load("REPORT", "report.txt");')
+        generated.contains('public static final String SCHEMA_VERSION = FixtureReferencesLoader.load("SCHEMA_VERSION", "v3");')
+
+        when: 'a second run reuses the configuration cache'
+        def second = runner(dir, 'generateArtifactReferences', '--configuration-cache').build()
+
+        then:
+        second.output.contains('Reusing configuration cache.')
+    }
+
+    def "an empty reference value contributes no constant without collapsing the interface"() {
+        given:
+        new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"
+        new File(dir, 'build.gradle') << """
+            plugins { id 'java'; id 'io.github.nhwalker.artifacts' }
+            group = 'com.example'
+            genericArtifacts {
+                references {
+                    present { value 'kept' }
+                    blank   { value '' }
+                }
+            }
+        """
+
+        when:
+        def result = runner(dir, 'generateArtifactReferences').build()
+
+        then: 'the empty value is skipped while the present one is still emitted (no map collapse)'
+        result.task(':generateArtifactReferences').outcome == SUCCESS
+        def text = new File(dir,
+                'build/generated/sources/genericArtifactRefs/java/main/com/example/FixtureReferences.java').text
+        text.contains('public static final String PRESENT = FixtureReferencesLoader.load("PRESENT", "kept");')
+        !text.contains('BLANK')
+    }
+
     def "references expose arbitrary string constants on the generated interface"() {
         given:
         new File(dir, 'settings.gradle') << "rootProject.name='fixture'\n"

@@ -1,0 +1,27 @@
+// base-chart — a minimal, standalone Helm chart packaged and linted by the plugin,
+// and published as a Maven module. It is aggregated as a subchart by :platform-chart.
+//
+// Demonstrates: chart lint + package, and publishing the chart's package variant via
+// `from components.helm`.
+plugins {
+    id 'io.github.nhwalker.helm'
+    id 'maven-publish'
+}
+
+helm {
+    charts {
+        base {
+            // chartDirectory defaults to src/main/helm/base
+            lint = true
+        }
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) { from components.helm }
+    }
+    repositories {
+        maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }
+    }
+}

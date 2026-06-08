@@ -1,0 +1,61 @@
+// integration-test — the star example: a downstream module that AGGREGATES image
+// references and a packaged Helm chart from sibling projects for deployment / container
+// testing.
+//
+// It uses the generic-artifacts plugin to consume, by attribute/classifier:
+//   * the digest-pinned image reference of :api-service  (classifier api-reference)
+//   * the digest-pinned image reference of :worker-service (classifier worker-reference)
+//   * the packaged :platform-chart umbrella chart (classifier platform), bundled into
+//     this project's TEST resources at charts/platform.tgz
+//
+// `references('test')` then turns the resolved image-reference files into String
+// constants on a generated IntegrationRefs interface (test source set), and records the
+// bundled chart's resource path. The test reads those constants — this is the exact
+// information a Testcontainers-based test would hand to `new GenericContainer<>(...)`.
+//
+// This example is BUILD-GRAPH-ONLY: it wires and consumes the aggregation but does not
+// start containers (no Testcontainers dependency). AggregationSmokeTest marks where the
+// real container calls would go.
+//
+// Consuming the image-reference variants resolves (and so builds + inspects) the
+// producer images, so this project's `test` requires podman; packaging the chart
+// requires helm. Both are scoped to the test source set, keeping compileJava engine-free.
+plugins {
+    id 'java'
+    id 'io.github.nhwalker.artifacts'
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // A real Testcontainers integration test would additionally add:
+    // testImplementation 'org.testcontainers:testcontainers:1.20.4'
+}
+
+genericArtifacts {
+    referencesPackage = 'io.github.nhwalker.examples.it'
+    referencesClassName = 'IntegrationRefs'
+
+    consume {
+        // Image reference variants -> single-line tag@sha256:... files.
+        apiImageRef    { from project(':api-service');    classifier = 'api-reference' }
+        workerImageRef { from project(':worker-service'); classifier = 'worker-reference' }
+        // Packaged chart variant -> bundled into test resources under charts/.
+        platformChart  {
+            from project(':platform-chart'); classifier = 'platform'
+            importResourcesTask('test') { into 'charts' }   // -> charts/platform.tgz
+        }
+    }
+
+    // Capture the aggregated coordinates + chart path as test-scoped constants.
+    references('test') {
+        apiImage              { fromFile genericArtifacts.consume.apiImageRef.files }
+        workerImage           { fromFile genericArtifacts.consume.workerImageRef.files }
+        platformChartResource { value 'charts/platform.tgz' }
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

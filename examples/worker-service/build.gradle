@@ -1,0 +1,30 @@
+// worker-service — two images in one project, where `worker` is built FROM its
+// sibling `runtime` (an intra-project base-image dependency).
+//
+// Demonstrates: a sibling base-image dependency (`from 'BASE_IMAGE', images.runtime`),
+// and the noCache / pull build toggles. The `worker` image's reference variant is
+// aggregated by the :integration-test project.
+plugins {
+    id 'io.github.nhwalker.container'
+}
+
+container {
+    images {
+        runtime {
+            containerfile = layout.projectDirectory.file('src/main/container/runtime/Containerfile')
+            contextDirectory = layout.projectDirectory.dir('src/main/container/runtime')
+            tags = ['examples/worker-runtime:1.0']
+            // Skip the layer cache to always rebuild from the (locally cached) base image.
+            // `pull = true` is also available to force re-fetching the upstream base on every
+            // build; it is omitted here so repeated example runs don't hit registry pull limits.
+            noCache = true
+        }
+        worker {
+            containerfile = layout.projectDirectory.file('src/main/container/worker/Containerfile')
+            contextDirectory = layout.projectDirectory.dir('src/main/container/worker')
+            tags = ['registry.example.com/worker:1.0']
+            // FROM the sibling `runtime` image in this same project; runtime is built first.
+            from 'BASE_IMAGE', images.runtime
+        }
+    }
+}

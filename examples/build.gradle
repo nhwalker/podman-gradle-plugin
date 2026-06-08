@@ -1,0 +1,34 @@
+// Common configuration shared by every example subproject.
+allprojects {
+    group = 'io.github.nhwalker.examples'
+    version = '0.1.0'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    // Examples that consume the generated Java interfaces apply the `java` plugin
+    // themselves; target Java 17 (matching the plugin) using whichever JDK runs Gradle.
+    pluginManager.withPlugin('java') {
+        java {
+            sourceCompatibility = JavaVersion.VERSION_17
+            targetCompatibility = JavaVersion.VERSION_17
+        }
+    }
+
+    // The examples drive the real `podman`/`helm` binaries. They default to the
+    // ones on PATH; point at a non-PATH install with
+    // `-Ppodman.executable=/path/to/podman` / `-Phelm.executable=/path/to/helm`.
+    pluginManager.withPlugin('io.github.nhwalker.container') {
+        container {
+            executable = providers.gradleProperty('podman.executable').getOrElse('podman')
+        }
+    }
+    pluginManager.withPlugin('io.github.nhwalker.helm') {
+        helm {
+            executable = providers.gradleProperty('helm.executable').getOrElse('helm')
+        }
+    }
+}

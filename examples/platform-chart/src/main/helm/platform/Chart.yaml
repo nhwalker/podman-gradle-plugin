@@ -1,0 +1,13 @@
+apiVersion: v2
+name: platform
+description: Umbrella chart aggregating the base chart
+type: application
+# Replaced at stage time from the chart's preValues.
+version: {{ .PreValues.ChartVersion }}
+appVersion: "1.0.0"
+# The base subchart is staged into charts/base.tgz by the plugin; helm lint requires it to be
+# declared here too. An empty repository means it is vendored in charts/ rather than fetched.
+dependencies:
+  - name: base
+    version: "0.1.0"
+    repository: ""

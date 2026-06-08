@@ -1,0 +1,41 @@
+// base-image — a standalone container image other images build FROM.
+//
+// Demonstrates: tags (canonical + extra), labels, build args, an exported archive
+// variant (createArchive), and publishing the image's variants as one Maven module
+// via `from components.container`.
+plugins {
+    id 'io.github.nhwalker.container'
+    id 'maven-publish'
+}
+
+container {
+    images {
+        base {
+            containerfile = layout.projectDirectory.file('src/main/container/Containerfile')
+            contextDirectory = layout.projectDirectory.dir('src/main/container')
+            tags = ['examples/base:1.0', 'examples/base:latest']
+            labels = [
+                'org.opencontainers.image.title'      : 'examples-base',
+                'org.opencontainers.image.description': 'Base image for the podman-gradle-plugin examples'
+            ]
+            buildArgs = ['GREETING': 'hello from the base image']
+            // Also export an OCI archive variant alongside the built image.
+            createArchive = true
+            archiveFormat = 'oci-archive'
+        }
+    }
+
+    // executable is set to 'podman' (overridable with -Ppodman.executable) by the
+    // root examples build. Other conventions are available too, e.g.:
+    // globalOptions = ['--log-level', 'warn']
+    // connection = 'my-remote'   // reach a remote podman service via --connection
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) { from components.container }
+    }
+    repositories {
+        maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }
+    }
+}
