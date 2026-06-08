@@ -340,6 +340,97 @@ exit 0
         argsLog.readLines() == ['cp running:/var/log/app.log ' + dest]
     }
 
+    def "generates an SBOM by running syft in a container over the saved archive"() {
+        given:
+        // A fake podman that writes a dummy tar for `save -o`, emits a CycloneDX
+        // document on stdout for `run` (the syft container), and logs every call.
+        def sbomFake = new File(testProjectDir, 'fake-podman-sbom')
+        sbomFake << """#!/usr/bin/env sh
+echo "\$@" >> '${argsLog.absolutePath}'
+case "\$1" in
+  run)
+    echo '{"bomFormat":"CycloneDX","specVersion":"1.5","components":[]}'
+    ;;
+  save)
+    out=""
+    while [ \$# -gt 0 ]; do
+      if [ "\$1" = "-o" ]; then out="\$2"; fi
+      shift
+    done
+    [ -n "\$out" ] && echo 'dummy-tar' > "\$out"
+    ;;
+esac
+exit 0
+"""
+        sbomFake.setExecutable(true)
+        buildFile << """
+            plugins { id 'io.github.nhwalker.container' }
+
+            container {
+                executable = '${sbomFake.absolutePath}'
+                syftImage = 'docker.io/anchore/syft:v1.18.1'
+                images { foo { tags = ['example/foo:1.0']; generateSbom = true } }
+            }
+        """
+
+        when:
+        def result = runner('generateFooImageSbom').build()
+
+        then: 'the image is built and saved, then scanned with the syft container'
+        result.task(':generateFooImageSbom').outcome == SUCCESS
+        def log = argsLog.readLines()
+        log.any { it.startsWith('build ') }
+        log.any { it.startsWith('save ') }
+        log.any { it.contains('docker.io/anchore/syft:v1.18.1') && it.contains('scan oci-archive:/scan/image.tar') }
+
+        and: 'the captured CycloneDX document is written to the sbom file'
+        def sbom = new File(testProjectDir, 'build/container/foo/foo-sbom.cyclonedx.json')
+        sbom.isFile()
+        sbom.text.contains('"bomFormat":"CycloneDX"')
+    }
+
+    def "dryRun prints the sbom command without invoking podman run"() {
+        given:
+        // Only the save step actually runs (to produce the scanned tar input); the sbom
+        // step is dry-run, so it logs the plan and never invokes the syft container.
+        def saveFake = new File(testProjectDir, 'fake-podman-save')
+        saveFake << """#!/usr/bin/env sh
+echo "\$@" >> '${argsLog.absolutePath}'
+if [ "\$1" = "save" ]; then
+  out=""
+  while [ \$# -gt 0 ]; do
+    if [ "\$1" = "-o" ]; then out="\$2"; fi
+    shift
+  done
+  [ -n "\$out" ] && echo 'dummy-tar' > "\$out"
+fi
+exit 0
+"""
+        saveFake.setExecutable(true)
+        buildFile << """
+            plugins { id 'io.github.nhwalker.container' }
+
+            container {
+                executable = '${saveFake.absolutePath}'
+                images { foo { tags = ['example/foo:1.0']; generateSbom = true } }
+            }
+            tasks.withType(io.github.nhwalker.container.gradle.tasks.ContainerSbomTask).configureEach {
+                dryRun = true
+            }
+        """
+
+        when:
+        def result = runner('generateFooImageSbom').build()
+
+        then: 'the syft run is only printed, and no sbom file is written'
+        result.task(':generateFooImageSbom').outcome == SUCCESS
+        result.output.contains('[dry-run]')
+        result.output.contains('run --rm --pull missing')
+        result.output.contains('scan oci-archive:/scan/image.tar -o cyclonedx-json')
+        !argsLog.readLines().any { it.startsWith('run ') }
+        !new File(testProjectDir, 'build/container/foo/foo-sbom.cyclonedx.json').exists()
+    }
+
     def "dryRun prints the create, copy and remove plan without executing"() {
         given:
         def dest = new File(testProjectDir, 'out/a.jar').absolutePath

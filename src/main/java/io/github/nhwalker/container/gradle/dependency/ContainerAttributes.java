@@ -37,11 +37,17 @@ public final class ContainerAttributes {
     /** Free-attribute key for the archive container format; set only on archive variants. */
     public static final String ARCHIVE_FORMAT_KEY = "io.github.nhwalker.container.archiveFormat";
 
+    /** Free-attribute key for the SBOM document format; set only on SBOM variants. */
+    public static final String SBOM_FORMAT_KEY = "io.github.nhwalker.container.sbomFormat";
+
     /** {@link #IMAGE_TYPE_KEY} value for the image reference (coordinate pointer). */
     public static final String IMAGE_TYPE_REFERENCE = "reference";
 
     /** {@link #IMAGE_TYPE_KEY} value for the exported archive (tar bytes). */
     public static final String IMAGE_TYPE_ARCHIVE = "archive";
+
+    /** {@link #IMAGE_TYPE_KEY} value for the generated SBOM document. */
+    public static final String IMAGE_TYPE_SBOM = "sbom";
 
     /** {@link #ARCHIVE_FORMAT_KEY} value for an OCI archive. */
     public static final String ARCHIVE_FORMAT_OCI = "oci-archive";
@@ -49,11 +55,17 @@ public final class ContainerAttributes {
     /** {@link #ARCHIVE_FORMAT_KEY} value for a docker archive. */
     public static final String ARCHIVE_FORMAT_DOCKER = "docker-archive";
 
+    /** {@link #SBOM_FORMAT_KEY} value for a CycloneDX JSON document. */
+    public static final String SBOM_FORMAT_CYCLONEDX = "cyclonedx-json";
+
     /** The Gradle artifact type of an archive variant's exported tar file. */
     public static final String ARTIFACT_TYPE_ARCHIVE = "tar";
 
     /** The Gradle artifact type of a reference variant's single-line text file. */
     public static final String ARTIFACT_TYPE_REFERENCE = "txt";
+
+    /** The Gradle artifact type of an SBOM variant's JSON document. */
+    public static final String ARTIFACT_TYPE_SBOM = "json";
 
     /**
      * The file extension used for an exported archive: {@code docker.tar} for the docker formats,

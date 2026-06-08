@@ -65,6 +65,21 @@ public abstract class ContainerExtension implements ReferencesExtension {
     public abstract Property<String> getConnection();
 
     /**
+     * The Syft container image used to generate SBOMs (for images that opt in via
+     * {@link io.github.nhwalker.container.gradle.dsl.ContainerImage#getGenerateSbom() generateSbom}).
+     * Run with {@code podman run}; pin a specific tag for reproducible scans. Defaults to a pinned
+     * {@code docker.io/anchore/syft} release.
+     */
+    public abstract Property<String> getSyftImage();
+
+    /**
+     * The {@code podman run --pull} policy used when running the {@link #getSyftImage() Syft image}
+     * ({@code missing}, {@code always}, {@code never} or {@code newer}). This governs how podman pulls
+     * the Syft image itself, not Syft's own behavior. Defaults to {@code missing}.
+     */
+    public abstract Property<String> getSyftPullPolicy();
+
+    /**
      * The package the generated {@code <ProjectName>Images} interface(s) are placed into.
      * Defaults to the project group; when blank the default package is used.
      *

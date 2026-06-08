@@ -10,6 +10,7 @@ import io.github.nhwalker.container.gradle.tasks.ContainerRemoveContainerTask
 import io.github.nhwalker.container.gradle.tasks.ContainerRemoveImageTask
 import io.github.nhwalker.container.gradle.tasks.ContainerRunTask
 import io.github.nhwalker.container.gradle.tasks.ContainerSaveTask
+import io.github.nhwalker.container.gradle.tasks.ContainerSbomTask
 import io.github.nhwalker.container.gradle.tasks.ContainerStopTask
 import org.gradle.api.InvalidUserDataException
 import org.gradle.testfixtures.ProjectBuilder
@@ -256,6 +257,44 @@ class ContainerPluginSpec extends Specification {
 
         then:
         thrown(InvalidUserDataException)
+    }
+
+    def "sbom task runs syft in a container scanning the oci-archive over stdout"() {
+        given:
+        def tar = project.layout.buildDirectory.file('container/app/app.oci.tar').get().asFile
+        def task = project.tasks.register('sbom', ContainerSbomTask) {
+            it.archiveFile.set(project.layout.buildDirectory.file('container/app/app.oci.tar'))
+            it.archiveFormat.set('oci-archive')
+            it.syftImage.set('docker.io/anchore/syft:v1.18.1')
+            it.syftPullPolicy.set('missing')
+            it.sbomFormat.set('cyclonedx-json')
+            it.sbomFile.set(project.layout.buildDirectory.file('container/app/app-sbom.cyclonedx.json'))
+        }.get()
+
+        expect:
+        task.assembleCommand() == [
+                'podman', 'run', '--rm', '--pull', 'missing',
+                '-v', tar.absolutePath + ':/scan/image.tar:ro',
+                'docker.io/anchore/syft:v1.18.1',
+                'scan', 'oci-archive:/scan/image.tar',
+                '-o', 'cyclonedx-json'
+        ]
+    }
+
+    def "sbom task selects the docker-archive scheme for a docker archive"() {
+        given:
+        def tar = project.layout.buildDirectory.file('container/app/app.docker.tar').get().asFile
+        def task = project.tasks.register('sbom', ContainerSbomTask) {
+            it.archiveFile.set(project.layout.buildDirectory.file('container/app/app.docker.tar'))
+            it.archiveFormat.set('docker-archive')
+            it.syftImage.set('docker.io/anchore/syft:v1.18.1')
+            it.syftPullPolicy.set('missing')
+            it.sbomFormat.set('cyclonedx-json')
+            it.sbomFile.set(project.layout.buildDirectory.file('app-sbom.json'))
+        }.get()
+
+        expect:
+        task.assembleCommand().containsAll(['scan', 'docker-archive:/scan/image.tar'])
     }
 
     def "load task renders the input archive"() {
