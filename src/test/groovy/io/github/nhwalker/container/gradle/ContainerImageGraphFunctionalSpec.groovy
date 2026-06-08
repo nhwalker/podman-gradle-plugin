@@ -245,9 +245,33 @@ exit 0
         third.task(':saveAppImage').outcome == SUCCESS
     }
 
-    def "an archive saves several images into one tar, pulling missing members first"() {
-        given:
-        def fake = fakeContainer(dir)
+    /** A fake podman where `image exists` reports the given refs present (exit 0) and all others absent. */
+    private File fakeContainerWithPresent(File root, List<String> present) {
+        def checks = present.collect { "  if [ \"\$3\" = '${it}' ]; then exit 0; fi" }.join("\n")
+        def bin = new File(root, 'fake-podman')
+        bin << """#!/usr/bin/env sh
+echo "\$@" >> '${argsLog.absolutePath}'
+if [ "\$1" = "image" ] && [ "\$2" = "inspect" ]; then echo "sha256:deadbeef"; fi
+if [ "\$1" = "image" ] && [ "\$2" = "exists" ]; then
+${checks}
+  exit 1
+fi
+if [ "\$1" = "save" ]; then
+  prev=""
+  for a in "\$@"; do
+    if [ "\$prev" = "-o" ]; then : > "\$a"; fi
+    prev="\$a"
+  done
+fi
+exit 0
+"""
+        bin.setExecutable(true)
+        return bin
+    }
+
+    def "an archive saves several images into one tar, pulling only the missing members first"() {
+        given: 'the sibling tags are present in storage; only the literal upstream image is missing'
+        def fake = fakeContainerWithPresent(dir, ['base:1', 'app:1'])
         new File(dir, 'settings.gradle') << "rootProject.name='bundle'\n"
         new File(dir, 'build.gradle') << """
             plugins { id 'io.github.nhwalker.container' }
@@ -275,12 +299,14 @@ exit 0
         result.task(':buildAppImage').outcome == SUCCESS
         result.task(':saveBundleArchive').outcome == SUCCESS
 
-        and: 'one pull --policy missing covers every member, then one save bundles them in order'
-        argsLog.readLines().any {
-            it.startsWith('pull --policy missing') && it.contains('base:1') && it.contains('app:1') &&
-                    it.contains('docker.io/library/alpine:3.20')
-        }
-        argsLog.readLines().any {
+        and: 'only the absent member is pulled; the present sibling tags are not'
+        def lines = argsLog.readLines()
+        lines.contains('pull docker.io/library/alpine:3.20')
+        !lines.contains('pull base:1')
+        !lines.contains('pull app:1')
+
+        and: 'one save bundles every member in declaration order'
+        lines.any {
             it.startsWith('save --format oci-archive -o') &&
                     it.trim().endsWith('base:1 app:1 docker.io/library/alpine:3.20')
         }
@@ -289,24 +315,34 @@ exit 0
         new File(dir, 'build/container/archives/bundle/bundle.oci.tar').exists()
     }
 
-    def "the archive pull policy is passed through to podman pull"() {
+    def "pullPolicy always pulls every member; never pulls none"() {
         given:
-        def fake = fakeContainer(dir)
+        def fake = fakeContainerWithPresent(dir, ['base:1'])   // base:1 is present
         new File(dir, 'settings.gradle') << "rootProject.name='bundle'\n"
         new File(dir, 'build.gradle') << """
             plugins { id 'io.github.nhwalker.container' }
             container {
                 executable = '${fake.absolutePath}'
                 images { base { tags = ['base:1'] } }
-                archives { bundle { image images.base; pullPolicy = 'always' } }
+                archives {
+                    eager  { image images.base; pullPolicy = 'always' }
+                    lazy   { image images.base; pullPolicy = 'never' }
+                }
             }
         """
 
-        when:
-        runner(dir, 'saveBundleArchive').build()
+        when: 'always pulls even though base:1 is present'
+        runner(dir, 'saveEagerArchive').build()
 
         then:
-        argsLog.readLines().any { it.startsWith('pull --policy always') && it.contains('base:1') }
+        argsLog.readLines().contains('pull base:1')
+
+        when: 'never pulls nothing'
+        argsLog.text = ''
+        runner(dir, 'saveLazyArchive').build()
+
+        then:
+        !argsLog.readLines().any { it.startsWith('pull ') }
     }
 
     def "publishes the multi-image archive as an archive variant of the aggregate component"() {

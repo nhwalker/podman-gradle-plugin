@@ -89,11 +89,11 @@ public abstract class ContainerArchive implements Named {
     public abstract Property<Boolean> getDefaultArtifact();
 
     /**
-     * The pull policy applied to every member before the save runs, passed straight through to
-     * {@code podman pull --policy}. Defaults to {@code missing} (pull only members not already in local
-     * storage). Other podman values ({@code always}, {@code newer}, {@code never}) are accepted — note
-     * {@code always}/{@code newer} fail for local-only tags such as sibling images, and {@code never}
-     * errors if a member is absent locally.
+     * The pull policy applied to the members before the save runs. Defaults to {@code missing} (pull only
+     * members not already in local storage, via {@code podman image exists}). {@code always} pulls every
+     * member — which fails for local-only tags such as sibling images — and {@code never} pulls nothing
+     * (the save fails if a member is absent locally). Implemented with {@code podman image exists}/
+     * {@code podman pull} rather than {@code pull --policy}, which is not available on older podman.
      */
     public abstract Property<String> getPullPolicy();
 

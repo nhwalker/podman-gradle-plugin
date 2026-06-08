@@ -19,6 +19,7 @@ import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
+import org.gradle.process.ExecResult;
 
 /**
  * Exports several images into a single tar archive with one {@code podman save img1 img2 …}.
@@ -40,6 +41,15 @@ import org.gradle.api.tasks.PathSensitivity;
  */
 public abstract class ContainerArchiveTask extends AbstractContainerTask {
 
+    /** {@link #getPullPolicy() pullPolicy} value: pull only members absent from local storage (default). */
+    public static final String POLICY_MISSING = "missing";
+
+    /** {@link #getPullPolicy() pullPolicy} value: pull every member regardless of local storage. */
+    public static final String POLICY_ALWAYS = "always";
+
+    /** {@link #getPullPolicy() pullPolicy} value: never pull (the save fails if a member is absent). */
+    public static final String POLICY_NEVER = "never";
+
     /** Reference files of the reference-backed members ({@code name:tag} or {@code name:tag@sha256:…}). */
     @InputFiles
     @PathSensitive(PathSensitivity.NONE)
@@ -54,7 +64,10 @@ public abstract class ContainerArchiveTask extends AbstractContainerTask {
     @Optional
     public abstract Property<String> getFormat();
 
-    /** Pull policy passed to {@code podman pull --policy} before the save. */
+    /**
+     * Pull policy applied to the members before the save: {@code missing} (default; pull only members
+     * not already in local storage), {@code always} (pull every member), or {@code never} (pull nothing).
+     */
     @Input
     public abstract Property<String> getPullPolicy();
 
@@ -75,17 +88,38 @@ public abstract class ContainerArchiveTask extends AbstractContainerTask {
     @Override
     public void execute() {
         List<String> images = resolveImages();
-        if (getDryRun().get()) {
-            // runSubcommand also logs/skips under dry-run, but rendering both steps keeps the intent clear.
-            getLogger().lifecycle("[dry-run] pull --policy {} {}", getPullPolicy().get(), images);
+        String policy = getPullPolicy().getOrElse(POLICY_MISSING);
+        if (!POLICY_MISSING.equals(policy) && !POLICY_ALWAYS.equals(policy) && !POLICY_NEVER.equals(policy)) {
+            throw new InvalidUserDataException("container archive '" + getName() + "' pullPolicy must be '"
+                    + POLICY_MISSING + "', '" + POLICY_ALWAYS + "', or '" + POLICY_NEVER + "', but was '"
+                    + policy + "'");
         }
-        List<String> pull = new ArrayList<>();
-        pull.add("pull");
-        pull.add("--policy");
-        pull.add(getPullPolicy().get());
-        pull.addAll(images);
-        runSubcommand(pull, false);
+        if (getDryRun().get()) {
+            getLogger().lifecycle("[dry-run] ensure present (policy={}): {}", policy, images);
+            runSubcommand(buildSubcommand(), false);
+            return;
+        }
+        // `podman pull` has no portable --policy flag (it was added in podman 5), so apply the policy
+        // here: `always` pulls every member, `missing` pulls only those `podman image exists` reports
+        // absent (locally-built/cross-project members are present and skipped), `never` pulls nothing.
+        if (!POLICY_NEVER.equals(policy)) {
+            for (String image : images) {
+                if (POLICY_ALWAYS.equals(policy) || !imageExists(image)) {
+                    runSubcommand(List.of("pull", image), false);
+                }
+            }
+        }
         runSubcommand(buildSubcommand(), false);
+    }
+
+    /** Whether {@code podman image exists <ref>} reports the image present (exit 0) in local storage. */
+    private boolean imageExists(String image) {
+        List<String> command = assembleCommandFor(List.of("image", "exists", image));
+        ExecResult result = getExecOperations().exec(spec -> {
+            spec.commandLine(command);
+            spec.setIgnoreExitValue(true);
+        });
+        return result.getExitValue() == 0;
     }
 
     /** The member images to save, reference-file members (digest stripped) first, then literal strings. */

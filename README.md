@@ -626,7 +626,7 @@ container {
             image 'docker.io/library/alpine:3.20'         // an arbitrary literal image
 
             // format          = 'oci-archive' // default; 'docker-archive' also supported
-            // pullPolicy      = 'missing'     // default; passed to `podman pull --policy`
+            // pullPolicy      = 'missing'     // default; also 'always' / 'never'
             // defaultArtifact = true          // publish the bundle as the bare-GAV main artifact
         }
     }
@@ -636,10 +636,11 @@ container {
 Reference-backed members (`image(sibling)`, `from(...)`, `referenceFile(...)`) carry the producing
 image's digest, so the archive **re-saves when their content changes** — the same content-pinning a
 single-image archive uses. Literal members (`image('name:tag')`) are pinned only by their tag string.
-Before saving, the task runs one `podman pull --policy <pullPolicy>` (default `missing`) over the
-members, fetching anything not already in local storage; this runs only when the task executes, so it
-never affects the up-to-date check. (`always`/`newer` fail for local-only tags like sibling images;
-`never` errors if a member is absent.)
+Before saving, the task applies `pullPolicy` (default `missing`): it `podman pull`s any member that
+`podman image exists` reports absent — so locally-built sibling/cross-project members are skipped and
+only genuinely-missing members (typically literal upstream refs) are fetched. `always` pulls every
+member (and so fails for local-only tags), `never` pulls nothing. The pull runs only when the task
+executes, so it never affects the up-to-date check.
 
 ### Aggregate & push
 
