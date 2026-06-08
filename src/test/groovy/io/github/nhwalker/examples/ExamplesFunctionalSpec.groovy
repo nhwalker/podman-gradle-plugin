@@ -57,12 +57,12 @@ class ExamplesFunctionalSpec extends Specification {
         result.task(':reports:jar').outcome in [SUCCESS, UP_TO_DATE]
     }
 
-    def "generating the references interface is configuration-cache compatible (no podman/helm)"() {
+    def "the reports example builds with the configuration cache, then reuses it (no podman/helm)"() {
         given:
-        runner(':reports:generateArtifactReferences', '--configuration-cache').build()
+        runner(':reports:build', '--configuration-cache').build()
 
         when:
-        def result = runner(':reports:generateArtifactReferences', '--configuration-cache').build()
+        def result = runner(':reports:build', '--configuration-cache').build()
 
         then:
         result.output.contains('Reusing configuration cache.')
@@ -99,5 +99,18 @@ class ExamplesFunctionalSpec extends Specification {
 
         then:
         result.task(':integration-test:test').outcome == SUCCESS
+    }
+
+    @Requires({ ExamplesFunctionalSpec.PODMAN && ExamplesFunctionalSpec.HELM })
+    def "the integration-test example is configuration-cache compatible"() {
+        given:
+        runner(':integration-test:test', '--configuration-cache').build()
+
+        when:
+        def result = runner(':integration-test:test', '--configuration-cache').build()
+
+        then:
+        result.output.contains('Reusing configuration cache.')
+        result.task(':integration-test:test').outcome in [SUCCESS, UP_TO_DATE]
     }
 }

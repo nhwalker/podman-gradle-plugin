@@ -99,7 +99,8 @@ public class ArtifactsPlugin implements Plugin<Project> {
         extension.getProduce().forEach(artifact ->
                 artifact.getResourceBundles().forEach((sourceSet, bundle) -> {
                     constantsBySourceSet.computeIfAbsent(sourceSet, k -> new LinkedHashMap<>())
-                            .put(artifact.getName(), ResourceImports.bundledResourcePath(bundle));
+                            .put(artifact.getName(),
+                                    ResourceImports.bundledResourcePath(project.getObjects(), bundle));
                     bundlesBySourceSet.computeIfAbsent(sourceSet, k -> new ArrayList<>()).add(bundle);
                 }));
         // Arbitrary user-declared constants share the same interface as the bundled resource paths.

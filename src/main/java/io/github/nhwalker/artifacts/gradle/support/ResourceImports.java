@@ -7,14 +7,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.gradle.api.Action;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.CopySpec;
 import org.gradle.api.file.Directory;
+import org.gradle.api.file.FileSystemLocation;
+import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
@@ -95,23 +99,41 @@ public final class ResourceImports {
      * Lazily yields the classpath resource path of the single file staged by {@code bundleTask},
      * relative to its destination root (forward-slash separated). Yields an empty string when the
      * bundle does not contain exactly one file, which the reference generator treats as "skip".
+     *
+     * <p>The value is rooted in the bundle task's <em>output</em> files (via a file collection) rather
+     * than read off the task object directly. A file collection's {@code getElements()} carries the
+     * bundle task as a build dependency <em>and</em> is resolved at execution time, so under the
+     * configuration cache the staged file exists when the path is computed — a plain
+     * {@code bundleTask.map(...)} would be resolved eagerly at store time, against the not-yet-populated
+     * destination directory.
      */
-    public static Provider<String> bundledResourcePath(TaskProvider<Sync> bundleTask) {
-        return bundleTask.map(task -> {
-            Path root = task.getDestinationDir().toPath();
+    public static Provider<String> bundledResourcePath(ObjectFactory objects, TaskProvider<Sync> bundleTask) {
+        ConfigurableFileCollection staged = objects.fileCollection();
+        staged.from(bundleTask);
+        return staged.getElements().map(ResourceImports::singleStagedResourcePath);
+    }
+
+    /**
+     * The forward-slash resource path of the single regular file staged under {@code roots} (the bundle
+     * task's destination directory), relative to that root; an empty string when exactly one file is
+     * not staged (treated as "skip" by the reference generator).
+     */
+    private static String singleStagedResourcePath(Set<? extends FileSystemLocation> roots) {
+        for (FileSystemLocation location : roots) {
+            Path root = location.getAsFile().toPath();
             if (!Files.isDirectory(root)) {
-                return "";
+                continue;
             }
             try (Stream<Path> walk = Files.walk(root)) {
                 List<Path> files = walk.filter(Files::isRegularFile).collect(Collectors.toList());
-                if (files.size() != 1) {
-                    return "";
+                if (files.size() == 1) {
+                    return root.relativize(files.get(0)).toString().replace(File.separatorChar, '/');
                 }
-                return root.relativize(files.get(0)).toString().replace(File.separatorChar, '/');
             } catch (IOException e) {
                 throw new UncheckedIOException("Failed to inspect bundled resources in " + root, e);
             }
-        });
+        }
+        return "";
     }
 
     /**
@@ -137,8 +159,10 @@ public final class ResourceImports {
                     task.getClassName().set(className);
                     task.getPackageName().set(packageName);
                     task.getGeneratedNote().set(generatedNote);
-                    constants.forEach((name, value) -> task.getConstants().put(name,
-                            value.map(path -> path.isEmpty() ? null : path)));
+                    // Put every value, allowing empties: GenerateReferencesTask drops empty values, so
+                    // one empty/absent entry no longer collapses the whole map (and a documented empty
+                    // reference value contributes no constant).
+                    constants.forEach((name, value) -> task.getConstants().put(name, value.orElse("")));
                     task.getOutputDirectory().convention(outputDirectory);
                     regenerateAfter.forEach(task::dependsOn);
                 });

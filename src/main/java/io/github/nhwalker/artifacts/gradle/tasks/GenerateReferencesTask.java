@@ -78,6 +78,11 @@ public abstract class GenerateReferencesTask extends DefaultTask {
         source.append("// ").append(note).append("\n");
         source.append("public interface ").append(typeName).append(" {\n");
         for (Map.Entry<String, String> entry : constants.entrySet()) {
+            if (entry.getValue().isEmpty()) {
+                // An empty value contributes no constant (a documented empty reference value, or a
+                // bundle that did not stage exactly one resolvable file).
+                continue;
+            }
             appendConstant(source, loaderName, constantName(entry.getKey()), entry.getValue());
         }
         appendLoader(source, loaderName, qualifiedName);
