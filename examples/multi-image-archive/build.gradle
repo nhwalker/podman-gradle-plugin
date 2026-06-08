@@ -1,0 +1,60 @@
+// multi-image-archive — bundle SEVERAL images into ONE archive with the first-class
+// `container { archives { } }` block, and publish that archive as a variant of the project's
+// software component.
+//
+// The container plugin's per-image `createArchive` exports one tar per image. An archive is the
+// other shape: a SINGLE `podman save img1 img2 ...` bundle carrying multiple images at once —
+// handy as an air-gapped/offline bundle you `podman load` in one shot.
+//
+// A bundle's members are a free combination of image references:
+//   * a sibling image built in this project          -> image images.app
+//   * a cross-project image reference                 -> from project(':base-image')
+//   * one image of a multi-image producer             -> from project(':worker-service'), 'worker'
+//   * (also) an arbitrary literal image               -> image 'docker.io/library/alpine:3.20'
+//   * (also) a published name:tag@digest file         -> referenceFile file('refs/legacy-ref.txt')
+//
+// Before saving, the task runs `podman pull --policy <pullPolicy>` (default 'missing') over the
+// members, so anything not already in local storage is fetched. Here every member is built by the
+// build graph, so the pull is a no-op (no registry contact) and the example stays offline-friendly.
+//
+// Building the member images requires podman.
+plugins {
+    id 'io.github.nhwalker.container'
+    id 'maven-publish'
+}
+
+container {
+    images {
+        // A local application image, built FROM :base-image, that we also want in the bundle.
+        app {
+            containerfile = layout.projectDirectory.file('src/main/container/Containerfile')
+            contextDirectory = layout.projectDirectory.dir('src/main/container')
+            tags = ['registry.example.com/app:1.0']
+            from 'BASE_IMAGE', project(':base-image')
+        }
+    }
+
+    archives {
+        // One OCI archive holding app + base + worker, published as the `bundle` variant.
+        bundle {
+            image images.app                              // sibling image in this project
+            from project(':base-image')                   // cross-project image reference
+            from project(':worker-service'), 'worker'     // one image of a multi-image producer
+            // format = 'oci-archive'   // default; 'docker-archive' is also supported
+            // pullPolicy = 'missing'   // default; 'always' / 'newer' / 'never' map to podman --policy
+            // defaultArtifact = true   // publish the bundle as the module's bare-GAV main artifact
+        }
+    }
+}
+
+publishing {
+    publications {
+        // No `java` plugin here, so publish the aggregate component carrying the image + archive
+        // variants. Consumers resolve the bundle with
+        // `from 'io.github.nhwalker.examples:multi-image-archive:0.1.0'; classifier = 'bundle'`.
+        maven(MavenPublication) { from components.genericArtifacts }
+    }
+    repositories {
+        maven { name = 'localExamples'; url = layout.buildDirectory.dir('repo') }
+    }
+}

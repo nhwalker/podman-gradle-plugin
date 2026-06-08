@@ -31,8 +31,10 @@ import io.github.nhwalker.artifacts.gradle.support.LifecycleSupport;
 import io.github.nhwalker.artifacts.gradle.support.PublishingSupport;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
+import io.github.nhwalker.container.gradle.dsl.ContainerArchive;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 import io.github.nhwalker.container.gradle.tasks.AbstractContainerTask;
+import io.github.nhwalker.container.gradle.tasks.ContainerArchiveTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerBuildTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerImageReferenceTask;
 import io.github.nhwalker.container.gradle.tasks.ContainerSaveTask;
@@ -125,12 +127,63 @@ public class ContainerPlugin implements Plugin<Project> {
             Map<String, TaskProvider<ContainerImageReferenceTask>> referenceTasks = new LinkedHashMap<>();
             extension.getImages().forEach(image ->
                     referenceTasks.put(image.getName(), registerImage(p, extension, image)));
+            // Multi-image archives are materialized after images so a bundle can reference sibling
+            // images (their reference tasks/configs already exist) and name collisions are caught.
+            extension.getArchives().forEach(archive -> registerArchive(p, extension, archive));
             // When a Java plugin is applied, expose each opted-in image's reference to Java code
             // through a generated interface (per target source set). No-ops when nothing opted in.
             if (p.getPluginManager().hasPlugin("java")) {
                 registerReferences(p, extension, referenceTasks);
             }
         });
+    }
+
+    private void registerArchive(Project project, ContainerExtension extension, ContainerArchive archive) {
+        String name = archive.getName();
+        boolean lifecycle = LifecycleSupport.enabled(
+                archive.getLifecycleIntegration(), extension.getLifecycleIntegration());
+        String classifier = archive.getClassifier().get();
+        // A bundle publishes an imageType=archive variant; a name/classifier shared with an image (whose
+        // own archive uses classifier <image>) would publish a duplicate variant. Fail fast instead.
+        extension.getImages().forEach(image -> {
+            if (image.getName().equals(name) || image.getName().equals(classifier)) {
+                throw new InvalidUserDataException("container archive '" + name + "' (classifier '"
+                        + classifier + "') collides with image '" + image.getName()
+                        + "'; give the archive a distinct name or classifier");
+            }
+        });
+
+        boolean defaultArtifact = archive.getDefaultArtifact().get();
+        String format = archive.getFormat().getOrElse(ContainerAttributes.ARCHIVE_FORMAT_OCI);
+        TaskProvider<ContainerArchiveTask> saveTask = project.getTasks().register(
+                ContainerArchive.saveTaskName(name), ContainerArchiveTask.class, t -> {
+                    t.getImageReferenceFiles().from(archive.getImageReferenceFiles());
+                    t.getImageStrings().convention(archive.getImageStrings());
+                    t.getFormat().convention(archive.getFormat());
+                    t.getPullPolicy().convention(archive.getPullPolicy());
+                    t.getOutputFile().convention(project.getLayout().getBuildDirectory()
+                            .file(ContainerArchive.archiveFilePath(name, format)));
+                });
+
+        // Archive variant: classifier <archive> (or unclassified when default), free attrs
+        // imageName/imageType/archiveFormat, artifact type tar with the save task as its build dependency.
+        var archiveElements = ArtifactsDependencies.elements(project,
+                ContainerArchive.archiveBundleElementsName(name), classifier,
+                Map.of(ContainerAttributes.IMAGE_NAME_KEY, name,
+                        ContainerAttributes.IMAGE_TYPE_KEY, ContainerAttributes.IMAGE_TYPE_ARCHIVE,
+                        ContainerAttributes.ARCHIVE_FORMAT_KEY, format),
+                List.of(new ArtifactSpec(
+                        saveTask.flatMap(ContainerArchiveTask::getOutputFile),
+                        artifact -> {
+                            artifact.setType("tar");
+                            artifact.builtBy(saveTask);
+                        })),
+                defaultArtifact);
+        PublishingSupport.addVariants(project, softwareComponentFactory, archiveElements.get(),
+                defaultArtifact ? "container archive '" + name + "'" : null);
+        if (lifecycle) {
+            LifecycleSupport.assembleDependsOn(project, saveTask);
+        }
     }
 
     private void registerReferences(Project project, ContainerExtension extension,

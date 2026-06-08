@@ -73,6 +73,7 @@ The tasks always remain runnable by name (e.g. `./gradlew buildAppImage`,
 | `base-image` | container | tags, labels, build args, exported archive variant (`createArchive`), `maven-publish` of `components.genericArtifacts` |
 | `api-service` | container | cross-project base image (`from 'BASE_IMAGE', project(':base-image')`), platform, `javaReference()` → `ApiImages` constants consumed by Java; `maven-publish` of `components.java` (jar + image in one module) |
 | `worker-service` | container | intra-project sibling base image (`from 'BASE_IMAGE', images.runtime`), `noCache`/`pull` |
+| `multi-image-archive` | container | bundles several images into ONE archive (`archives { }` → `podman save img1 img2`) with `pullPolicy`, published as a variant of `components.genericArtifacts` |
 | `base-chart` | helm | minimal chart, lint, package, `maven-publish` of `components.genericArtifacts` |
 | `platform-chart` | helm | subchart aggregation (`from project(':base-chart')`), `preValues` substitution, version overrides, `importResourcesTask()` → `PlatformCharts`; `maven-publish` of `components.java` (jar + chart in one module) |
 | `reports` | artifacts | `produce`/`consume`, `downloadTask`/`unpackTask`, `importResourcesTask`/`importUnpackedResourcesTask`, `references` → `ReportRefs` (no podman/helm needed) |
@@ -98,4 +99,22 @@ real container/deploy calls would go.
 
 ```sh
 ./gradlew -p examples :integration-test:test   # requires podman + helm
+```
+
+## The `multi-image-archive` bundler
+
+`multi-image-archive` shows how to ship **several images in one archive** with the first-class
+`container { archives { } }` block — a single `podman save img1 img2 …` bundle, as opposed to
+the per-image `createArchive` (which exports one tar per image).
+
+An archive bundles a combination of image references: sibling images, cross-project image
+references (`from project(':…')`), published reference files, and arbitrary literal image
+strings. Before saving, the task runs `podman pull --policy <pullPolicy>` (default `missing`)
+over the members so anything not already in local storage is fetched. The resulting tar is
+published as a variant of `components.genericArtifacts`, so a consumer pulls the whole bundle
+with one dependency and `podman load`s it in one shot.
+
+```sh
+./gradlew -p examples :multi-image-archive:saveBundleArchive   # requires podman
+./gradlew -p examples :multi-image-archive:publishMavenPublicationToLocalExamplesRepository
 ```

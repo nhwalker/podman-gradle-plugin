@@ -223,6 +223,41 @@ class ContainerPluginSpec extends Specification {
         ]
     }
 
+    def "archive task saves the reference-file members (digest stripped) then the literal members"() {
+        given: 'two reference files (one digest-pinned) and a literal image'
+        def baseRef = new File(project.projectDir, 'base-ref.txt')
+        baseRef.text = 'example/base:1.0@sha256:deadbeef\n'
+        def appRef = new File(project.projectDir, 'app-ref.txt')
+        appRef.text = 'example/app:1.0\n'
+        def out = project.layout.buildDirectory.file('bundle.tar').get().asFile
+        def task = project.tasks.register('saveBundleArchive', io.github.nhwalker.container.gradle.tasks.ContainerArchiveTask) {
+            it.imageReferenceFiles.from(baseRef, appRef)
+            it.imageStrings.set(['docker.io/library/alpine:3.20'])
+            it.format.set('oci-archive')
+            it.pullPolicy.set('missing')
+            it.outputFile.set(project.layout.buildDirectory.file('bundle.tar'))
+        }.get()
+
+        expect: 'name:tag from each ref file (digest dropped), reference members first, then literals'
+        task.assembleCommand() == [
+                'podman', 'save', '--format', 'oci-archive', '-o', out.absolutePath,
+                'example/base:1.0', 'example/app:1.0', 'docker.io/library/alpine:3.20'
+        ]
+    }
+
+    def "archive task fails when no members are declared"() {
+        given:
+        def task = project.tasks.register('saveEmptyArchive', io.github.nhwalker.container.gradle.tasks.ContainerArchiveTask) {
+            it.outputFile.set(project.layout.buildDirectory.file('empty.tar'))
+        }.get()
+
+        when:
+        task.assembleCommand()
+
+        then:
+        thrown(InvalidUserDataException)
+    }
+
     def "load task renders the input archive"() {
         given:
         def input = project.layout.buildDirectory.file('img.tar').get().asFile

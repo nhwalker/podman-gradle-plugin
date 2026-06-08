@@ -103,6 +103,24 @@ class ExamplesFunctionalSpec extends Specification {
         result.task(':base-image:saveBaseImage').outcome in [SUCCESS, UP_TO_DATE]
     }
 
+    @Requires({ ExamplesFunctionalSpec.PODMAN })
+    def "the multi-image-archive example bundles a combination of image references into one archive and publishes it"() {
+        when:
+        def result = runner(':multi-image-archive:publishMavenPublicationToLocalExamplesRepository').build()
+
+        then: 'the member images are built, then saved into the single bundle and published'
+        result.task(':base-image:buildBaseImage').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':worker-service:buildWorkerImage').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':multi-image-archive:buildAppImage').outcome in [SUCCESS, UP_TO_DATE]
+        result.task(':multi-image-archive:saveBundleArchive').outcome == SUCCESS
+        result.task(':multi-image-archive:publishMavenPublicationToLocalExamplesRepository').outcome == SUCCESS
+
+        and: 'the published module carries the combined archive under the bundle classifier'
+        new File(examplesDir(),
+                'multi-image-archive/build/repo/io/github/nhwalker/examples/multi-image-archive/0.1.0/'
+                        + 'multi-image-archive-0.1.0-bundle.tar').exists()
+    }
+
     @Requires({ ExamplesFunctionalSpec.HELM })
     def "the helm examples lint, package, and aggregate the base chart into the umbrella"() {
         when:
