@@ -50,6 +50,26 @@ gradlePlugin {
     }
 }
 
+publishing {
+    repositories {
+        // GitLab CI publishes to the project's Maven package registry; local builds
+        // are unaffected because the repository is only added when the job token exists.
+        if (System.getenv('CI_JOB_TOKEN')) {
+            maven {
+                name = 'GitLab'
+                url = uri("${System.getenv('CI_API_V4_URL')}/projects/${System.getenv('CI_PROJECT_ID')}/packages/maven")
+                credentials(HttpHeaderCredentials) {
+                    name = 'Job-Token'
+                    value = System.getenv('CI_JOB_TOKEN')
+                }
+                authentication {
+                    header(HttpHeaderAuthentication)
+                }
+            }
+        }
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform()
     testLogging {
