@@ -21,7 +21,7 @@ import org.gradle.api.tasks.PathSensitivity;
  * <pre>
  * tasks.register('lintApi', HelmLintTask) {
  *     chartDirectory = layout.projectDirectory.dir('src/main/helm/api')
- *     strict = true
+ *     strict = false // strict is the default; set false to tolerate warnings
  *     valuesFiles.from('ci/values.yaml')
  * }
  * </pre>
@@ -33,7 +33,7 @@ public abstract class HelmLintTask extends AbstractHelmTask {
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getChartDirectory();
 
-    /** Fail on lint warnings as well as errors ({@code --strict}). Defaults to {@code false}. */
+    /** Fail on lint warnings as well as errors ({@code --strict}). Defaults to {@code true}. */
     @Input
     public abstract Property<Boolean> getStrict();
 
@@ -49,7 +49,7 @@ public abstract class HelmLintTask extends AbstractHelmTask {
 
     @SuppressWarnings("this-escape")
     public HelmLintTask() {
-        getStrict().convention(false);
+        getStrict().convention(true);
         getExtraArguments().convention(List.of());
     }
 
