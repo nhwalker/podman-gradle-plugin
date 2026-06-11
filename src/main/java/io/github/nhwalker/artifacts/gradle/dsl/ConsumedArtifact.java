@@ -23,10 +23,12 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.Sync;
-import org.gradle.api.tasks.TaskContainer;
 import org.gradle.api.tasks.TaskProvider;
 
+import io.github.nhwalker.artifacts.gradle.support.Names;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
+import io.github.nhwalker.artifacts.gradle.support.StagingSources;
+import io.github.nhwalker.artifacts.gradle.support.SyncTasks;
 
 /**
  * A single artifact dependency declared in {@code genericArtifacts { consume { } }}.
@@ -197,10 +199,9 @@ public abstract class ConsumedArtifact implements Named {
      * {@link #downloadTask()} as the handle inside other tasks' configuration blocks.
      */
     public TaskProvider<Sync> downloadTask(Action<? super Sync> configuration) {
-        ConfigurableFileCollection files = getFiles();
         return stagingTask(downloadTaskName(name),
                 "Stages the '" + name + "' consumed artifact into a directory.",
-                files, files, defaultDestination(), configuration);
+                StagingSources.of(getFiles()), defaultDestination(), configuration);
     }
 
     /**
@@ -220,10 +221,11 @@ public abstract class ConsumedArtifact implements Named {
      * <p>Idempotent, exactly like {@link #downloadTask(Action)}.
      */
     public TaskProvider<Sync> unpackTask(Action<? super Sync> configuration) {
-        ConfigurableFileCollection files = getFiles();
+        // Depend on the resolved archives; copy from the expanded trees (which carry no
+        // build dependencies of their own).
         return stagingTask(unpackTaskName(name),
                 "Unpacks the '" + name + "' consumed archive into a directory.",
-                files, unpackedTrees(), defaultDestination(), configuration);
+                StagingSources.of(getFiles(), unpackedTrees()), defaultDestination(), configuration);
     }
 
     // ---- resource-import tasks --------------------------------------------------
@@ -268,10 +270,9 @@ public abstract class ConsumedArtifact implements Named {
      * the same {@code TaskProvider} as an idempotent dependency handle without reconfiguring it.
      */
     public TaskProvider<Sync> importResourcesTask(String sourceSetName, Action<? super CopySpec> configuration) {
-        ConfigurableFileCollection files = getFiles();
         return resourceImportTask(importResourcesTaskName(name, sourceSetName),
                 "Imports the '" + name + "' consumed artifact into the '" + sourceSetName + "' resources.",
-                files, files, sourceSetName, configuration);
+                StagingSources.of(getFiles()), sourceSetName, configuration);
     }
 
     /**
@@ -308,7 +309,7 @@ public abstract class ConsumedArtifact implements Named {
     public TaskProvider<Sync> importUnpackedResourcesTask(String sourceSetName, Action<? super CopySpec> configuration) {
         return resourceImportTask(importUnpackedResourcesTaskName(name, sourceSetName),
                 "Imports the unpacked '" + name + "' consumed archive into the '" + sourceSetName + "' resources.",
-                getFiles(), unpackedTrees(), sourceSetName, configuration);
+                StagingSources.of(getFiles(), unpackedTrees()), sourceSetName, configuration);
     }
 
     /**
@@ -328,48 +329,40 @@ public abstract class ConsumedArtifact implements Named {
     }
 
     /**
-     * Stages {@code source} into {@code build/generated/resources/genericArtifacts/<name>/<sourceSet>}
+     * Stages the sources into {@code build/generated/resources/genericArtifacts/<name>/<sourceSet>}
      * and registers that folder on the named source set's resources, via the shared
      * {@link ResourceImports#register} helper. {@code configuration} configures the copy spec so it
      * can nest into a subdirectory or filter while the staged root stays put. Later calls return the
      * same task as an idempotent dependency handle.
      */
     private TaskProvider<Sync> resourceImportTask(String taskName, String description,
-            Object buildDependency, Object source, String sourceSetName, Action<? super CopySpec> configuration) {
+            StagingSources sources, String sourceSetName, Action<? super CopySpec> configuration) {
         Provider<Directory> destination = project.getLayout().getBuildDirectory()
                 .dir("generated/resources/genericArtifacts/" + name + "/" + sourceSetName);
         return ResourceImports.register(project, TASK_GROUP, taskName, description,
-                buildDependency, source, sourceSetName, destination, configuration);
+                sources, sourceSetName, destination, configuration);
     }
 
     /**
-     * Registers the {@code Sync} task on first call (staging into {@code destination}, depending on
-     * {@code buildDependency} and copying from {@code source}), or returns the existing one on
-     * later calls. A non-null {@code configuration} is applied either way; a null one (the no-arg
+     * Registers the {@code Sync} task on first call (staging the sources into {@code destination}),
+     * or returns the existing one on later calls. A non-null {@code configuration} is applied
+     * either way (it configures the task, so re-applying is additive); a null one (the no-arg
      * handle path) never reconfigures an existing task, so it is safe to call from within another
-     * task's configuration block.
+     * task's configuration block. See {@link SyncTasks} for the two configuration conventions.
      */
     private TaskProvider<Sync> stagingTask(String taskName, String description,
-            Object buildDependency, Object source, Provider<Directory> destination,
-            Action<? super Sync> configuration) {
-        TaskContainer tasks = project.getTasks();
-        if (tasks.getNames().contains(taskName)) {
-            TaskProvider<Sync> existing = tasks.named(taskName, Sync.class);
-            if (configuration != null) {
-                existing.configure(configuration);
-            }
-            return existing;
-        }
-        return tasks.register(taskName, Sync.class, task -> {
-            task.setGroup(TASK_GROUP);
-            task.setDescription(description);
-            task.dependsOn(buildDependency);
-            task.into(destination);
-            task.from(source);
-            if (configuration != null) {
-                configuration.execute(task);
-            }
+            StagingSources sources, Provider<Directory> destination, Action<? super Sync> configuration) {
+        TaskProvider<Sync> task = SyncTasks.registerIfAbsent(project.getTasks(), taskName, t -> {
+            t.setGroup(TASK_GROUP);
+            t.setDescription(description);
+            t.dependsOn(sources.getTaskDependencies());
+            t.into(destination);
+            t.from(sources.getCopySource());
         });
+        if (configuration != null) {
+            task.configure(configuration);
+        }
+        return task;
     }
 
     private Provider<Directory> defaultDestination() {
@@ -377,36 +370,24 @@ public abstract class ConsumedArtifact implements Named {
     }
 
     public static String downloadTaskName(String name) {
-        return "download" + capitalize(name);
+        return "download" + Names.capitalize(name);
     }
 
     public static String unpackTaskName(String name) {
-        return "unpack" + capitalize(name);
+        return "unpack" + Names.capitalize(name);
     }
 
     public static String importResourcesTaskName(String name, String sourceSetName) {
-        return "import" + capitalize(name) + sourceSetQualifier(sourceSetName) + "Resources";
+        return "import" + Names.capitalize(name) + Names.sourceSetQualifier(sourceSetName) + "Resources";
     }
 
     public static String importUnpackedResourcesTaskName(String name, String sourceSetName) {
-        return "import" + capitalize(name) + sourceSetQualifier(sourceSetName) + "UnpackedResources";
-    }
-
-    /** Empty for the conventional {@code main} source set, otherwise the capitalized name. */
-    private static String sourceSetQualifier(String sourceSetName) {
-        return SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName) ? "" : capitalize(sourceSetName);
+        return "import" + Names.capitalize(name) + Names.sourceSetQualifier(sourceSetName) + "UnpackedResources";
     }
 
     private static boolean isTarArchive(String fileName) {
         String lower = fileName.toLowerCase(Locale.ROOT);
         return lower.endsWith(".tar") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz")
                 || lower.endsWith(".tar.bz2") || lower.endsWith(".tbz2");
-    }
-
-    private static String capitalize(String value) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 }

@@ -24,7 +24,9 @@ import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactSpec;
+import io.github.nhwalker.artifacts.gradle.support.Names;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
+import io.github.nhwalker.artifacts.gradle.support.StagingSources;
 
 /**
  * A single classified artifact declared in {@code genericArtifacts { produce { } }}.
@@ -185,7 +187,7 @@ public abstract class ProducedArtifact implements Named {
         TaskProvider<Sync> task = ResourceImports.register(project, TASK_GROUP,
                 importResourcesTaskName(name, sourceSetName),
                 "Bundles the produced '" + name + "' artifact into the '" + sourceSetName + "' resources.",
-                source, source, sourceSetName, destination, configuration);
+                StagingSources.of(source), sourceSetName, destination, configuration);
         resourceBundles.putIfAbsent(sourceSetName, task);
         return task;
     }
@@ -200,18 +202,6 @@ public abstract class ProducedArtifact implements Named {
     }
 
     public static String importResourcesTaskName(String name, String sourceSetName) {
-        return "import" + capitalize(name) + sourceSetQualifier(sourceSetName) + "Resources";
-    }
-
-    /** Empty for the conventional {@code main} source set, otherwise the capitalized name. */
-    private static String sourceSetQualifier(String sourceSetName) {
-        return SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName) ? "" : capitalize(sourceSetName);
-    }
-
-    private static String capitalize(String value) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+        return "import" + Names.capitalize(name) + Names.sourceSetQualifier(sourceSetName) + "Resources";
     }
 }

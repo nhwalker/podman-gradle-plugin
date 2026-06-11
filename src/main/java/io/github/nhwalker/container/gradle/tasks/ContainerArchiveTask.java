@@ -1,10 +1,6 @@
 package io.github.nhwalker.container.gradle.tasks;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,6 +16,8 @@ import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.process.ExecResult;
+
+import io.github.nhwalker.container.gradle.support.ReferenceFiles;
 
 /**
  * Exports several images into a single tar archive with one {@code podman save img1 img2 …}.
@@ -49,6 +47,9 @@ public abstract class ContainerArchiveTask extends AbstractContainerTask {
 
     /** {@link #getPullPolicy() pullPolicy} value: never pull (the save fails if a member is absent). */
     public static final String POLICY_NEVER = "never";
+
+    /** The valid {@link #getPullPolicy() pullPolicy} values, in documentation order. */
+    private static final List<String> PULL_POLICIES = List.of(POLICY_MISSING, POLICY_ALWAYS, POLICY_NEVER);
 
     /** Reference files of the reference-backed members ({@code name:tag} or {@code name:tag@sha256:…}). */
     @InputFiles
@@ -89,27 +90,35 @@ public abstract class ContainerArchiveTask extends AbstractContainerTask {
     public void execute() {
         List<String> images = resolveImages();
         String policy = getPullPolicy().getOrElse(POLICY_MISSING);
-        if (!POLICY_MISSING.equals(policy) && !POLICY_ALWAYS.equals(policy) && !POLICY_NEVER.equals(policy)) {
-            throw new InvalidUserDataException("container archive '" + getName() + "' pullPolicy must be '"
-                    + POLICY_MISSING + "', '" + POLICY_ALWAYS + "', or '" + POLICY_NEVER + "', but was '"
-                    + policy + "'");
+        if (!PULL_POLICIES.contains(policy)) {
+            throw new InvalidUserDataException("container archive '" + getName() + "' pullPolicy must be one of "
+                    + PULL_POLICIES + ", but was '" + policy + "'");
         }
         if (getDryRun().get()) {
             getLogger().lifecycle("[dry-run] ensure present (policy={}): {}", policy, images);
             runSubcommand(buildSubcommand(), false);
             return;
         }
-        // `podman pull` has no portable --policy flag (it was added in podman 5), so apply the policy
-        // here: `always` pulls every member, `missing` pulls only those `podman image exists` reports
-        // absent (locally-built/cross-project members are present and skipped), `never` pulls nothing.
-        if (!POLICY_NEVER.equals(policy)) {
-            for (String image : images) {
-                if (POLICY_ALWAYS.equals(policy) || !imageExists(image)) {
-                    runSubcommand(List.of("pull", image), false);
-                }
+        ensureMembersPresent(images, policy);
+        runSubcommand(buildSubcommand(), false);
+    }
+
+    /**
+     * Pulls whatever members the policy says must be fetched before the save. {@code podman pull}
+     * has no portable {@code --policy} flag (it was added in podman 5), so the policy is applied
+     * here: {@code always} pulls every member, {@code missing} pulls only those {@code podman image
+     * exists} reports absent (locally-built/cross-project members are present and skipped), and
+     * {@code never} pulls nothing.
+     */
+    private void ensureMembersPresent(List<String> images, String policy) {
+        if (POLICY_NEVER.equals(policy)) {
+            return;
+        }
+        for (String image : images) {
+            if (POLICY_ALWAYS.equals(policy) || !imageExists(image)) {
+                runSubcommand(List.of("pull", image), false);
             }
         }
-        runSubcommand(buildSubcommand(), false);
     }
 
     /** Whether {@code podman image exists <ref>} reports the image present (exit 0) in local storage. */
@@ -126,7 +135,7 @@ public abstract class ContainerArchiveTask extends AbstractContainerTask {
     private List<String> resolveImages() {
         List<String> images = new ArrayList<>();
         for (File file : getImageReferenceFiles().getFiles()) {
-            String reference = readReference(file);
+            String reference = ReferenceFiles.readFirstLineIfPresent(file);
             if (reference != null) {
                 int at = reference.indexOf('@');
                 images.add(at >= 0 ? reference.substring(0, at) : reference);
@@ -138,21 +147,5 @@ public abstract class ContainerArchiveTask extends AbstractContainerTask {
                     "container archive '" + getName() + "' must declare at least one image to bundle");
         }
         return images;
-    }
-
-    /** Reads the first non-blank line of a reference file (the coordinate, digest-pinned when available). */
-    private static String readReference(File file) {
-        if (!file.isFile()) {
-            return null;
-        }
-        try {
-            return Files.readAllLines(file.toPath(), StandardCharsets.UTF_8).stream()
-                    .map(String::strip)
-                    .filter(line -> !line.isEmpty())
-                    .findFirst()
-                    .orElse(null);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to read image reference file " + file, e);
-        }
     }
 }

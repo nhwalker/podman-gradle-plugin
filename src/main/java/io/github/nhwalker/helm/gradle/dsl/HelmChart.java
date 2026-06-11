@@ -23,7 +23,9 @@ import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.artifacts.gradle.support.Names;
 import io.github.nhwalker.artifacts.gradle.support.ResourceImports;
+import io.github.nhwalker.artifacts.gradle.support.StagingSources;
 import io.github.nhwalker.helm.gradle.HelmPlugin;
 import io.github.nhwalker.helm.gradle.dependency.HelmAttributes;
 
@@ -219,7 +221,7 @@ public abstract class HelmChart implements Named {
         TaskProvider<Sync> task = ResourceImports.register(project, HelmPlugin.TASK_GROUP,
                 importResourcesTaskName(name, sourceSetName),
                 "Bundles the packaged '" + name + "' chart into the '" + sourceSetName + "' resources.",
-                packageTaskName(name), packagedChart, sourceSetName, destination, placement);
+                StagingSources.of(packageTaskName(name), packagedChart), sourceSetName, destination, placement);
         resourceBundles.putIfAbsent(sourceSetName, task);
         return task;
     }
@@ -236,24 +238,19 @@ public abstract class HelmChart implements Named {
     // ---- naming helpers (shared with the plugin reaction) -----------------------
 
     public static String importResourcesTaskName(String chart, String sourceSetName) {
-        return "import" + capitalize(chart) + sourceSetQualifier(sourceSetName) + "ChartResources";
-    }
-
-    /** Empty for the conventional {@code main} source set, otherwise the capitalized name. */
-    private static String sourceSetQualifier(String sourceSetName) {
-        return SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName) ? "" : capitalize(sourceSetName);
+        return "import" + Names.capitalize(chart) + Names.sourceSetQualifier(sourceSetName) + "ChartResources";
     }
 
     public static String stageTaskName(String chart) {
-        return "stage" + capitalize(chart) + "Chart";
+        return "stage" + Names.capitalize(chart) + "Chart";
     }
 
     public static String packageTaskName(String chart) {
-        return "package" + capitalize(chart) + "Chart";
+        return "package" + Names.capitalize(chart) + "Chart";
     }
 
     public static String lintTaskName(String chart) {
-        return "lint" + capitalize(chart) + "Chart";
+        return "lint" + Names.capitalize(chart) + "Chart";
     }
 
     public static String packageElementsName(String chart) {
@@ -273,12 +270,5 @@ public abstract class HelmChart implements Named {
     /** The classpath resource path the packaged chart is bundled at inside the jar. */
     public static String jarResourcePath(String chart) {
         return "charts/" + chart + ".tgz";
-    }
-
-    private static String capitalize(String value) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 }

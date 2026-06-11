@@ -14,7 +14,9 @@ import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.artifacts.gradle.support.Names;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
+import io.github.nhwalker.container.gradle.tasks.ContainerArchiveTask;
 
 /**
  * A multi-image archive declared in the {@code container { archives { } }} container.
@@ -64,7 +66,7 @@ public abstract class ContainerArchive implements Named {
         getFormat().convention(ContainerAttributes.ARCHIVE_FORMAT_OCI);
         getClassifier().convention(name);
         getDefaultArtifact().convention(false);
-        getPullPolicy().convention("missing");
+        getPullPolicy().convention(ContainerArchiveTask.POLICY_MISSING);
     }
 
     @Override
@@ -177,7 +179,7 @@ public abstract class ContainerArchive implements Named {
     // ---- naming helpers (shared with the plugin reaction) -----------------------
 
     public static String saveTaskName(String archive) {
-        return "save" + capitalize(archive) + "Archive";
+        return "save" + Names.capitalize(archive) + "Archive";
     }
 
     public static String archiveBundleElementsName(String archive) {
@@ -186,14 +188,7 @@ public abstract class ContainerArchive implements Named {
 
     /** The build-relative path of a multi-image archive's exported tar. */
     public static String archiveFilePath(String archive, String archiveFormat) {
-        String ext = archiveFormat != null && archiveFormat.startsWith("docker") ? "docker.tar" : "oci.tar";
-        return "container/archives/" + archive + "/" + archive + "." + ext;
-    }
-
-    private static String capitalize(String value) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+        return "container/archives/" + archive + "/" + archive + "."
+                + ContainerAttributes.archiveFileExtension(archiveFormat);
     }
 }

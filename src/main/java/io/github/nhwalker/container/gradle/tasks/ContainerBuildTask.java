@@ -1,10 +1,6 @@
 package io.github.nhwalker.container.gradle.tasks;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +20,7 @@ import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 
 import io.github.nhwalker.container.gradle.dsl.BaseImageReference;
+import io.github.nhwalker.container.gradle.support.ReferenceFiles;
 
 /**
  * Builds an image with {@code podman build}.
@@ -139,16 +136,7 @@ public abstract class ContainerBuildTask extends AbstractContainerTask {
         if (files.isEmpty()) {
             return null;
         }
-        File file = files.iterator().next();
-        try {
-            return Files.readAllLines(file.toPath(), StandardCharsets.UTF_8).stream()
-                    .map(String::strip)
-                    .filter(line -> !line.isEmpty())
-                    .findFirst()
-                    .orElse(null);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to read base image reference " + file, e);
-        }
+        return ReferenceFiles.readFirstLine(files.iterator().next());
     }
 }
 

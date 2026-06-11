@@ -44,10 +44,7 @@ public final class ResourceImports {
      * {@code FixtureCharts} for {@code main} and {@code FixtureChartsTest} for {@code test}.
      */
     public static String withSourceSetSuffix(String baseName, String sourceSetName) {
-        if (SourceSet.MAIN_SOURCE_SET_NAME.equals(sourceSetName)) {
-            return baseName;
-        }
-        return baseName + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
+        return baseName + Names.sourceSetQualifier(sourceSetName);
     }
 
     /**
@@ -61,37 +58,87 @@ public final class ResourceImports {
     }
 
     /**
-     * Registers (or returns) a {@code Sync} task that stages {@code source} into {@code destination}
-     * and, deferred until the {@code java} plugin is applied, registers that folder onto
-     * {@code sourceSetName}'s resources via {@code SourceDirectorySet.srcDir} (so it is bundled into
-     * the jar and visible on the eclipse classpath). The {@code srcDir} carries the task as its
-     * build dependency. {@code configuration}, when non-null, configures the copy spec so files can
-     * be nested into a subdirectory or filtered while the staged root stays put. Later calls return
-     * the same task as an idempotent dependency handle without reconfiguring or re-wiring it.
+     * The conventional references task name for a source set:
+     * {@code generate[<SourceSet>]<Noun>References}, with {@code main} unqualified — e.g. a
+     * {@code noun} of {@code Image} yields {@code generateImageReferences} for {@code main} and
+     * {@code generateTestImageReferences} for {@code test}. Each plugin supplies its own noun
+     * ({@code Image}/{@code Chart}/{@code Artifact}) so the task names do not collide.
+     */
+    public static String generateReferencesTaskName(String sourceSetName, String noun) {
+        return "generate" + Names.sourceSetQualifier(sourceSetName) + noun + "References";
+    }
+
+    /**
+     * Applies the extension conventions shared by the artifacts/container/helm plugins:
+     * {@code referencesPackage} defaults to the project group, {@code referencesClassName} to
+     * {@link #defaultReferencesBaseName &lt;ProjectName&gt;&lt;Domain&gt;}, and
+     * {@code lifecycleIntegration} to {@code true}. Call from {@code apply}.
+     */
+    public static void applyExtensionConventions(Project project, ReferencesExtension extension,
+            String referencesDomain) {
+        extension.getReferencesPackage().convention(
+                project.provider(() -> String.valueOf(project.getGroup())));
+        extension.getReferencesClassName().convention(project.provider(() ->
+                defaultReferencesBaseName(project.getName(), referencesDomain)));
+        extension.getLifecycleIntegration().convention(true);
+    }
+
+    /**
+     * Registers one references interface per populated source set, the shared back half of each
+     * plugin's reference generation: the plugin groups its constants (and the tasks that
+     * materialize their values) by target source set, and this helper derives the per-source-set
+     * class name ({@link #withSourceSetSuffix}), task name ({@code generate[<SourceSet>]<taskNoun>References})
+     * and output directory ({@code build/generated/sources/<outputDirName>/java/<sourceSet>}), then
+     * delegates to {@link #generateReferences}.
+     */
+    public static void generateReferencesForSourceSets(Project project, String taskGroup,
+            String taskNoun, String outputDirName, String generatedNote, ReferencesExtension extension,
+            Map<String, Map<String, Provider<String>>> constantsBySourceSet,
+            Map<String, List<TaskProvider<? extends Task>>> regenerateBySourceSet) {
+        constantsBySourceSet.forEach((sourceSet, constants) -> {
+            String className = withSourceSetSuffix(extension.getReferencesClassName().get(), sourceSet);
+            Provider<Directory> output = project.getLayout().getBuildDirectory()
+                    .dir("generated/sources/" + outputDirName + "/java/" + sourceSet);
+            generateReferences(project, taskGroup, generateReferencesTaskName(sourceSet, taskNoun),
+                    className, extension.getReferencesPackage(), generatedNote,
+                    constants, output, sourceSet, regenerateBySourceSet.getOrDefault(sourceSet, List.of()));
+        });
+    }
+
+    /**
+     * Registers (or returns) a {@code Sync} task that stages the {@code sources} into
+     * {@code destination} and, deferred until the {@code java} plugin is applied, registers that
+     * folder onto {@code sourceSetName}'s resources via {@code SourceDirectorySet.srcDir} (so it is
+     * bundled into the jar and visible on the eclipse classpath). The {@code srcDir} carries the
+     * task as its build dependency. {@code configuration}, when non-null, configures the copy spec
+     * so files can be nested into a subdirectory or filtered while the staged root stays put. Later
+     * calls return the same task as an idempotent dependency handle without reconfiguring or
+     * re-wiring it ({@code configuration} applies to the {@code from} copy spec, which only exists
+     * at first registration — see {@link SyncTasks}).
      */
     public static TaskProvider<Sync> register(Project project, String group, String taskName,
-            String description, Object buildDependency, Object source, String sourceSetName,
+            String description, StagingSources sources, String sourceSetName,
             Provider<Directory> destination, Action<? super CopySpec> configuration) {
         TaskContainer tasks = project.getTasks();
-        if (tasks.getNames().contains(taskName)) {
-            return tasks.named(taskName, Sync.class);
-        }
-        TaskProvider<Sync> registered = tasks.register(taskName, Sync.class, task -> {
+        boolean alreadyRegistered = tasks.getNames().contains(taskName);
+        TaskProvider<Sync> registered = SyncTasks.registerIfAbsent(tasks, taskName, task -> {
             task.setGroup(group);
             task.setDescription(description);
-            task.dependsOn(buildDependency);
+            task.dependsOn(sources.getTaskDependencies());
             task.into(destination);
             if (configuration != null) {
-                task.from(source, configuration);
+                task.from(sources.getCopySource(), configuration);
             } else {
-                task.from(source);
+                task.from(sources.getCopySource());
             }
         });
-        project.getPluginManager().withPlugin("java", applied -> {
-            SourceSet sourceSet = project.getExtensions().getByType(SourceSetContainer.class)
-                    .getByName(sourceSetName);
-            sourceSet.getResources().srcDir(registered.map(Sync::getDestinationDir));
-        });
+        if (!alreadyRegistered) {
+            project.getPluginManager().withPlugin("java", applied -> {
+                SourceSet sourceSet = project.getExtensions().getByType(SourceSetContainer.class)
+                        .getByName(sourceSetName);
+                sourceSet.getResources().srcDir(registered.map(Sync::getDestinationDir));
+            });
+        }
         return registered;
     }
 

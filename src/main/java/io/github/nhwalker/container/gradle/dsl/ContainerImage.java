@@ -20,6 +20,7 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.SourceSet;
 
 import io.github.nhwalker.artifacts.gradle.dependency.ArtifactsDependencies;
+import io.github.nhwalker.artifacts.gradle.support.Names;
 import io.github.nhwalker.container.gradle.dependency.ContainerAttributes;
 
 /**
@@ -71,7 +72,7 @@ public abstract class ContainerImage implements Named {
         getNoCache().convention(false);
         getPull().convention(false);
         getCreateArchive().convention(false);
-        getArchiveFormat().convention("oci-archive");
+        getArchiveFormat().convention(ContainerAttributes.ARCHIVE_FORMAT_OCI);
         getIncludeDigest().convention(true);
     }
 
@@ -143,22 +144,32 @@ public abstract class ContainerImage implements Named {
 
     // ---- base-image declarations ------------------------------------------------
 
-    /** Declares a base image using the default build-arg name {@value #DEFAULT_BASE_ARG}. */
+    /**
+     * Declares a base image using the default build-arg name {@value #DEFAULT_BASE_ARG}. See
+     * {@link #from(String, Object, String)} for the dependency-notation contract.
+     */
     public void from(Object dependencyNotation) {
         from(DEFAULT_BASE_ARG, dependencyNotation);
     }
 
-    /** Declares a base image from another project or an external coordinate. */
+    /**
+     * Declares a base image from another project or an external coordinate. See
+     * {@link #from(String, Object, String)} for the dependency-notation contract.
+     */
     public void from(String buildArgName, Object dependencyNotation) {
         from(buildArgName, dependencyNotation, null);
     }
 
     /**
-     * Declares a base image, selecting a specific image by name out of a producer
-     * that publishes several under one coordinate.
+     * Declares a base image, selecting a specific image by name out of a producer that publishes
+     * several under one coordinate. {@code dependencyNotation} is anything the project
+     * {@code dependencies} handler accepts — a {@code project(':x')} dependency, an external
+     * {@code group:name:version} coordinate, etc.; the resolved reference is injected into this
+     * image's build as {@code --build-arg <buildArgName>=<reference>} and the producer is built
+     * first.
      */
     public void from(String buildArgName, Object dependencyNotation, String imageName) {
-        String token = capitalize(sanitize(buildArgName));
+        String token = Names.capitalize(sanitize(buildArgName));
         NamedDomainObjectProvider<DependencyScopeConfiguration> bucket =
                 ArtifactsDependencies.dependencyBucket(project, name + "BaseImageDep" + token);
         project.getDependencies().add(bucket.getName(), dependencyNotation);
@@ -189,7 +200,10 @@ public abstract class ContainerImage implements Named {
         getBaseImages().add(ref);
     }
 
-    /** Alias for {@link #from(String, Object)}. */
+    /**
+     * Alias for {@link #from(String, Object)}, for builds where {@code from} reads awkwardly. See
+     * {@link #from(String, Object, String)} for the dependency-notation contract.
+     */
     public void baseImage(String buildArgName, Object dependencyNotation) {
         from(buildArgName, dependencyNotation);
     }
@@ -231,15 +245,15 @@ public abstract class ContainerImage implements Named {
     // ---- naming helpers (shared with the plugin reaction) -----------------------
 
     public static String buildTaskName(String image) {
-        return "build" + capitalize(image) + "Image";
+        return "build" + Names.capitalize(image) + "Image";
     }
 
     public static String referenceTaskName(String image) {
-        return "write" + capitalize(image) + "ImageReference";
+        return "write" + Names.capitalize(image) + "ImageReference";
     }
 
     public static String saveTaskName(String image) {
-        return "save" + capitalize(image) + "Image";
+        return "save" + Names.capitalize(image) + "Image";
     }
 
     public static String referenceElementsName(String image) {
@@ -257,18 +271,11 @@ public abstract class ContainerImage implements Named {
 
     /** The build-relative path of an image's exported archive. */
     public static String archiveFilePath(String image, String archiveFormat) {
-        String ext = archiveFormat != null && archiveFormat.startsWith("docker") ? "docker.tar" : "oci.tar";
-        return "container/" + image + "/" + image + "." + ext;
+        return "container/" + image + "/" + image + "."
+                + ContainerAttributes.archiveFileExtension(archiveFormat);
     }
 
     private static String sanitize(String token) {
         return token.replaceAll("[^A-Za-z0-9]", "");
-    }
-
-    private static String capitalize(String value) {
-        if (value == null || value.isEmpty()) {
-            return value;
-        }
-        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 }
