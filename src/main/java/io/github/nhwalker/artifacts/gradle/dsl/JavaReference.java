@@ -113,21 +113,27 @@ public abstract class JavaReference implements Named {
         }
         File file = regularFiles.get(0);
         try {
-            String text = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-            // Drop a single trailing line terminator only for single-line files (text files
-            // conventionally end with one, and an image coordinate wants no trailing newline). A
-            // multi-line document keeps its trailing newline so its contents are preserved verbatim.
-            String withoutTerminator;
-            if (text.endsWith("\r\n")) {
-                withoutTerminator = text.substring(0, text.length() - 2);
-            } else if (text.endsWith("\n")) {
-                withoutTerminator = text.substring(0, text.length() - 1);
-            } else {
-                return text;
-            }
-            return withoutTerminator.indexOf('\n') < 0 ? withoutTerminator : text;
+            return stripTrailingNewlineIfSingleLine(Files.readString(file.toPath(), StandardCharsets.UTF_8));
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read reference file " + file, e);
         }
+    }
+
+    /**
+     * Drops a single trailing line terminator from a single-line text (text files conventionally
+     * end with one, and an image coordinate wants no trailing newline). A multi-line document is
+     * returned unchanged, trailing newline and all, so its contents are preserved verbatim.
+     */
+    private static String stripTrailingNewlineIfSingleLine(String text) {
+        String withoutTerminator;
+        if (text.endsWith("\r\n")) {
+            withoutTerminator = text.substring(0, text.length() - 2);
+        } else if (text.endsWith("\n")) {
+            withoutTerminator = text.substring(0, text.length() - 1);
+        } else {
+            return text;
+        }
+        boolean singleLine = withoutTerminator.indexOf('\n') < 0;
+        return singleLine ? withoutTerminator : text;
     }
 }

@@ -55,7 +55,12 @@ public abstract class ContainerImageReferenceTask extends AbstractContainerTask 
     @Override
     protected List<String> buildSubcommand() {
         // Only used for assembleCommand()/dry-run rendering of the inspect step.
-        return List.of("image", "inspect", "--format", "{{.Digest}}", getImageReference().get());
+        return inspectCommand(getImageReference().get());
+    }
+
+    /** The {@code image inspect} subcommand that prints the image's digest. */
+    private static List<String> inspectCommand(String reference) {
+        return List.of("image", "inspect", "--format", "{{.Digest}}", reference);
     }
 
     @Override
@@ -88,8 +93,7 @@ public abstract class ContainerImageReferenceTask extends AbstractContainerTask 
     /** Runs {@code podman image inspect} to capture the image digest, tolerating failure. */
     private String inspectDigest(String reference) {
         try {
-            String output = runSubcommand(
-                    List.of("image", "inspect", "--format", "{{.Digest}}", reference), true);
+            String output = runSubcommand(inspectCommand(reference), true);
             return output == null ? null : output.strip();
         } catch (RuntimeException e) {
             getLogger().info("Could not inspect digest for {}: {}", reference, e.getMessage());

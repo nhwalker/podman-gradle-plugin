@@ -123,7 +123,18 @@ public abstract class GenerateReferencesTask extends DefaultTask {
         return sb.toString();
     }
 
-    /** Converts a name to an UPPER_SNAKE_CASE Java constant identifier. */
+    /**
+     * Converts a name to an UPPER_SNAKE_CASE Java constant identifier. An underscore is inserted at
+     * each camelCase boundary (a lower-case letter or digit followed by an upper-case letter), every
+     * run of non-alphanumeric characters collapses to a single underscore, trailing underscores are
+     * stripped, and a leading digit is prefixed with {@code _}. For example:
+     * <ul>
+     *   <li>{@code apiServer} &rarr; {@code API_SERVER}</li>
+     *   <li>{@code api-server} / {@code api.server} &rarr; {@code API_SERVER}</li>
+     *   <li>{@code chart2} &rarr; {@code CHART2}, but {@code chart2X} &rarr; {@code CHART2_X}</li>
+     *   <li>{@code 2nd} &rarr; {@code _2ND}</li>
+     * </ul>
+     */
     public static String constantName(String name) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < name.length(); i++) {

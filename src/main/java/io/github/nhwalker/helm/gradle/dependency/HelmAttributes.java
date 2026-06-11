@@ -36,4 +36,7 @@ public final class HelmAttributes {
 
     /** {@link #CHART_TYPE_KEY} value for the packaged {@code .tgz} archive. */
     public static final String CHART_TYPE_PACKAGE = "package";
+
+    /** The Gradle artifact type of a packaged chart variant's {@code .tgz} file. */
+    public static final String ARTIFACT_TYPE_PACKAGE = "tgz";
 }

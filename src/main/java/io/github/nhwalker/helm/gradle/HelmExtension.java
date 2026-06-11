@@ -9,6 +9,7 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
+import io.github.nhwalker.artifacts.gradle.support.ReferencesExtension;
 import io.github.nhwalker.helm.gradle.dsl.HelmChart;
 
 /**
@@ -28,7 +29,7 @@ import io.github.nhwalker.helm.gradle.dsl.HelmChart;
  * }
  * </pre>
  */
-public abstract class HelmExtension {
+public abstract class HelmExtension implements ReferencesExtension {
 
     private final NamedDomainObjectContainer<HelmChart> charts;
 

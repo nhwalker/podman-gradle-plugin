@@ -49,6 +49,21 @@ public final class ContainerAttributes {
     /** {@link #ARCHIVE_FORMAT_KEY} value for a docker archive. */
     public static final String ARCHIVE_FORMAT_DOCKER = "docker-archive";
 
+    /** The Gradle artifact type of an archive variant's exported tar file. */
+    public static final String ARTIFACT_TYPE_ARCHIVE = "tar";
+
+    /** The Gradle artifact type of a reference variant's single-line text file. */
+    public static final String ARTIFACT_TYPE_REFERENCE = "txt";
+
+    /**
+     * The file extension used for an exported archive: {@code docker.tar} for the docker formats,
+     * {@code oci.tar} otherwise (including when the format is unset and defaults to
+     * {@link #ARCHIVE_FORMAT_OCI}).
+     */
+    public static String archiveFileExtension(String archiveFormat) {
+        return archiveFormat != null && archiveFormat.startsWith("docker") ? "docker.tar" : "oci.tar";
+    }
+
     /**
      * When the consumer does not request an {@code archiveFormat}, default to
      * {@code oci-archive} if it is among the candidates.

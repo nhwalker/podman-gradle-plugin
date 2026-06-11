@@ -94,15 +94,14 @@ public abstract class ContainerCopyFromImageTask extends AbstractContainerTask {
     protected List<String> buildSubcommand() {
         String ref = getContainer().getOrElse("<container>");
         Map<String, String> paths = getPaths().get();
-        List<String> args = new ArrayList<>();
-        args.add("cp");
-        args.addAll(getCopyOptions().get());
-        if (!paths.isEmpty()) {
-            Map.Entry<String, String> first = paths.entrySet().iterator().next();
-            args.add(ref + ":" + first.getKey());
-            args.add(first.getValue());
+        if (paths.isEmpty()) {
+            List<String> args = new ArrayList<>();
+            args.add("cp");
+            args.addAll(getCopyOptions().get());
+            return args;
         }
-        return args;
+        Map.Entry<String, String> first = paths.entrySet().iterator().next();
+        return cpCommand(ref, first.getKey(), first.getValue());
     }
 
     @Override
@@ -138,15 +137,36 @@ public abstract class ContainerCopyFromImageTask extends AbstractContainerTask {
         }
     }
 
-    /** Creates a stopped container from the image and returns its id. */
-    private String createContainer() {
+    // ---- the three engine commands, shared by real execution and the dry-run plan ----
+
+    /** The {@code create} subcommand building the temporary container from {@link #getImage()}. */
+    private List<String> createCommand() {
         List<String> create = new ArrayList<>();
         create.add("create");
         create.addAll(getCreateOptions().get());
         create.add(getImage().get());
+        return create;
+    }
 
+    /** The {@code cp} subcommand copying one source path out of {@code containerRef}. */
+    private List<String> cpCommand(String containerRef, String source, String destination) {
+        List<String> cp = new ArrayList<>();
+        cp.add("cp");
+        cp.addAll(getCopyOptions().get());
+        cp.add(containerRef + ":" + source);
+        cp.add(destination);
+        return cp;
+    }
+
+    /** The {@code rm} subcommand removing the temporary container. */
+    private static List<String> removeCommand(String containerRef) {
+        return List.of("rm", "-f", containerRef);
+    }
+
+    /** Creates a stopped container from the image and returns its id. */
+    private String createContainer() {
         // `podman create` prints the new container id on stdout.
-        String output = runSubcommand(create, /* captureStdout */ true);
+        String output = runSubcommand(createCommand(), /* captureStdout */ true);
         String id = lastNonBlankLine(output);
         if (id == null) {
             throw new InvalidUserDataException(
@@ -158,17 +178,12 @@ public abstract class ContainerCopyFromImageTask extends AbstractContainerTask {
 
     private void copyOne(String containerRef, String source, String destination) {
         ensureParentDirectory(destination);
-        List<String> cp = new ArrayList<>();
-        cp.add("cp");
-        cp.addAll(getCopyOptions().get());
-        cp.add(containerRef + ":" + source);
-        cp.add(destination);
-        runSubcommand(cp, false);
+        runSubcommand(cpCommand(containerRef, source, destination), false);
     }
 
     /** Removes the temporary container, never failing the build on cleanup errors. */
     private void removeContainerQuietly(String containerRef) {
-        List<String> command = assembleCommandFor(List.of("rm", "-f", containerRef));
+        List<String> command = assembleCommandFor(removeCommand(containerRef));
         getLogger().info("Removing temporary container {}", containerRef);
         getExecOperations().exec(spec -> {
             spec.commandLine(command);
@@ -179,23 +194,15 @@ public abstract class ContainerCopyFromImageTask extends AbstractContainerTask {
     private void logPlan(Map<String, String> paths) {
         String ref = getContainer().getOrElse("<container-from " + getImage().getOrElse("?") + ">");
         if (getImage().isPresent()) {
-            List<String> create = new ArrayList<>();
-            create.add("create");
-            create.addAll(getCreateOptions().get());
-            create.add(getImage().get());
-            getLogger().lifecycle("[dry-run] {}", String.join(" ", assembleCommandFor(create)));
+            getLogger().lifecycle("[dry-run] {}", String.join(" ", assembleCommandFor(createCommand())));
         }
         for (Map.Entry<String, String> entry : paths.entrySet()) {
-            List<String> cp = new ArrayList<>();
-            cp.add("cp");
-            cp.addAll(getCopyOptions().get());
-            cp.add(ref + ":" + entry.getKey());
-            cp.add(entry.getValue());
-            getLogger().lifecycle("[dry-run] {}", String.join(" ", assembleCommandFor(cp)));
+            getLogger().lifecycle("[dry-run] {}",
+                    String.join(" ", assembleCommandFor(cpCommand(ref, entry.getKey(), entry.getValue()))));
         }
         if (getImage().isPresent() && getRemoveContainer().get()) {
             getLogger().lifecycle("[dry-run] {}",
-                    String.join(" ", assembleCommandFor(List.of("rm", "-f", ref))));
+                    String.join(" ", assembleCommandFor(removeCommand(ref))));
         }
     }
 

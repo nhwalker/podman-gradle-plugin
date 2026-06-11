@@ -15,6 +15,7 @@ import org.gradle.api.tasks.SourceSet;
 import io.github.nhwalker.artifacts.gradle.dsl.ConsumedArtifact;
 import io.github.nhwalker.artifacts.gradle.dsl.JavaReference;
 import io.github.nhwalker.artifacts.gradle.dsl.ProducedArtifact;
+import io.github.nhwalker.artifacts.gradle.support.ReferencesExtension;
 
 /**
  * Project-level configuration for the Generic Artifacts plugin.
@@ -34,7 +35,7 @@ import io.github.nhwalker.artifacts.gradle.dsl.ProducedArtifact;
  * }
  * </pre>
  */
-public abstract class ArtifactsExtension {
+public abstract class ArtifactsExtension implements ReferencesExtension {
 
     private final ObjectFactory objects;
     private final NamedDomainObjectContainer<ProducedArtifact> produce;

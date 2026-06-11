@@ -9,6 +9,7 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
+import io.github.nhwalker.artifacts.gradle.support.ReferencesExtension;
 import io.github.nhwalker.container.gradle.dsl.ContainerArchive;
 import io.github.nhwalker.container.gradle.dsl.ContainerImage;
 
@@ -29,7 +30,7 @@ import io.github.nhwalker.container.gradle.dsl.ContainerImage;
  * }
  * </pre>
  */
-public abstract class ContainerExtension {
+public abstract class ContainerExtension implements ReferencesExtension {
 
     private final NamedDomainObjectContainer<ContainerImage> images;
     private final NamedDomainObjectContainer<ContainerArchive> archives;
