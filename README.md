@@ -823,7 +823,7 @@ It models three task types — the common chart build surface plus an escape hat
 
 | Task type | `helm` command | Purpose |
 | --- | --- | --- |
-| `HelmLintTask` | `helm lint` | Examine a chart for issues (`--strict`, `--values`). |
+| `HelmLintTask` | `helm lint` | Examine a chart for issues (`--strict` by default, `--values`). |
 | `HelmPackageTask` | `helm package` | Package a chart directory into a versioned `.tgz`. |
 | `HelmExecTask` | *any* | Generic escape hatch for unmodeled subcommands. |
 
@@ -994,7 +994,7 @@ import io.github.nhwalker.helm.gradle.tasks.*
 
 tasks.register('lintApi', HelmLintTask) {
     chartDirectory = layout.projectDirectory.dir('src/main/helm/api')
-    strict = true
+    strict = false // strict is the default; set false to tolerate warnings
     valuesFiles.from('ci/values.yaml')
 }
 tasks.register('packageApi', HelmPackageTask) {
