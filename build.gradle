@@ -5,7 +5,8 @@ plugins {
 }
 
 group = 'io.github.nhwalker'
-version = '0.1.0'
+// The release workflow overrides this from the git tag (-PpluginVersion=1.2.3).
+version = providers.gradleProperty('pluginVersion').getOrElse('0.1.0')
 description = 'Gradle plugin contributing tasks for building and publishing container images (podman by default)'
 
 repositories {
@@ -46,6 +47,22 @@ gradlePlugin {
             implementationClass = 'io.github.nhwalker.artifacts.gradle.ArtifactsPlugin'
             displayName = 'Generic Artifacts Gradle Plugin'
             description = 'Publish and consume arbitrary artifacts via attribute-based classifiers'
+        }
+    }
+}
+
+publishing {
+    repositories {
+        // Available only in CI, where GITHUB_TOKEN/GITHUB_REPOSITORY are set.
+        if (System.getenv('GITHUB_TOKEN') && System.getenv('GITHUB_REPOSITORY')) {
+            maven {
+                name = 'GitHubPackages'
+                url = uri("https://maven.pkg.github.com/${System.getenv('GITHUB_REPOSITORY')}")
+                credentials {
+                    username = System.getenv('GITHUB_ACTOR')
+                    password = System.getenv('GITHUB_TOKEN')
+                }
+            }
         }
     }
 }
