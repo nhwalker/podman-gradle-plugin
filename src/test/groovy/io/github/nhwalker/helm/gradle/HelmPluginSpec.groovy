@@ -46,7 +46,6 @@ class HelmPluginSpec extends Specification {
         def values = project.layout.projectDirectory.file('ci/values.yaml').asFile
         def task = project.tasks.register('lintApi', HelmLintTask) {
             it.chartDirectory.set(project.layout.projectDirectory.dir('src/main/helm/api'))
-            it.strict.set(true)
             it.valuesFiles.from(values)
         }.get()
 
@@ -59,6 +58,17 @@ class HelmPluginSpec extends Specification {
         cmd[2].endsWith('src/main/helm/api')
         cmd.contains('--strict')
         cmd.containsAll(['--values', values.absolutePath])
+    }
+
+    def "lint task omits --strict when disabled"() {
+        given:
+        def task = project.tasks.register('lintApi', HelmLintTask) {
+            it.chartDirectory.set(project.layout.projectDirectory.dir('src/main/helm/api'))
+            it.strict.set(false)
+        }.get()
+
+        expect:
+        !task.assembleCommand().contains('--strict')
     }
 
     def "package task renders version, app-version and a destination"() {
