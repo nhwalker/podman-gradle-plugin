@@ -1,0 +1,98 @@
+# GitLab CI/CD pipeline for the podman-gradle-plugin.
+#
+# Stages:
+#   build       - compile + full unit/functional test suite (podman/helm specs self-skip)
+#   integration - installs podman + helm so the example specs actually run
+#   publish     - manual job on v* tags, publishes to the GitLab Maven package registry
+
+stages:
+  - build
+  - integration
+  - publish
+
+workflow:
+  rules:
+    # Merge request pipelines; suppress the duplicate branch pipeline for the same commits.
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+default:
+  # Ubuntu-based JDK image so the integration job can apt-get install podman.
+  image: eclipse-temurin:17-jdk
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+
+.gradle-cache:
+  cache:
+    key:
+      files:
+        - gradle/wrapper/gradle-wrapper.properties
+    paths:
+      - .gradle/wrapper
+      - .gradle/caches/modules-2
+    policy: pull
+
+build:
+  stage: build
+  extends: .gradle-cache
+  cache:
+    policy: pull-push
+  script:
+    - ./gradlew build --stacktrace
+  artifacts:
+    when: always
+    paths:
+      - build/libs/
+      - build/reports/tests/
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+
+integration-tests:
+  stage: integration
+  extends: .gradle-cache
+  # Rootless podman inside an unprivileged CI container depends on the runner's
+  # privileges/capabilities; don't block the pipeline until a capable runner is confirmed.
+  allow_failure: true
+  variables:
+    # Standard settings for podman inside an unprivileged container: no overlayfs,
+    # no separate user namespace for builds, no systemd cgroup delegation.
+    STORAGE_DRIVER: vfs
+    BUILDAH_ISOLATION: chroot
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends podman ca-certificates curl
+    - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    - mkdir -p /etc/containers
+    - |
+      cat > /etc/containers/containers.conf <<'EOF'
+      [engine]
+      cgroup_manager = "cgroupfs"
+      events_logger = "file"
+      EOF
+    - podman info
+    - helm version
+  script:
+    # With podman/helm now on PATH, the @Requires example specs run instead of skipping.
+    - ./gradlew test --tests "io.github.nhwalker.examples.*" --stacktrace
+  artifacts:
+    when: always
+    paths:
+      - build/reports/tests/
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+
+publish:
+  stage: publish
+  extends: .gradle-cache
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+      when: manual
+  script:
+    # Derive the Maven version from the tag (v1.2.3 -> 1.2.3), overriding the
+    # default in build.gradle, then publish to this project's GitLab Maven package
+    # registry (build.gradle adds that repository only when CI_JOB_TOKEN is present).
+    - ./gradlew -PpluginVersion="${CI_COMMIT_TAG#v}" publish --stacktrace
