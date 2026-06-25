@@ -71,7 +71,7 @@ The tasks always remain runnable by name (e.g. `./gradlew buildAppImage`,
 | Project | Plugin | Demonstrates |
 | --- | --- | --- |
 | `base-image` | container | tags, labels, build args, exported archive variant (`createArchive`), `maven-publish` of `components.genericArtifacts` |
-| `api-service` | container | cross-project base image (`from 'BASE_IMAGE', project(':base-image')`), platform, `javaReference()` → `ApiImages` constants consumed by Java; `maven-publish` of `components.java` (jar + image in one module) |
+| `api-service` | container | cross-project base image (`from 'BASE_IMAGE', project(':base-image')`), platform, `javaReference()` → `ApiImages` constants consumed by Java; CycloneDX SBOM variant (`generateSbom`, Syft-in-a-container); `maven-publish` of `components.java` (jar + image + SBOM in one module) |
 | `worker-service` | container | intra-project sibling base image (`from 'BASE_IMAGE', images.runtime`), `noCache`/`pull` |
 | `multi-image-archive` | container | bundles several images into ONE archive (`archives { }` → `podman save img1 img2`) with `pullPolicy`, published as a variant of `components.genericArtifacts` |
 | `base-chart` | helm | minimal chart, lint, package, `maven-publish` of `components.genericArtifacts` |

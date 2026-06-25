@@ -39,6 +39,8 @@ class ContainerImageDependencySpec extends Specification {
                 .hasAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_TYPE_KEY))
         project.dependencies.attributesSchema
                 .hasAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.ARCHIVE_FORMAT_KEY))
+        project.dependencies.attributesSchema
+                .hasAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.SBOM_FORMAT_KEY))
     }
 
     def "an image creates build + reference tasks and a reference-elements consumable"() {
@@ -92,6 +94,49 @@ class ContainerImageDependencySpec extends Specification {
         def artifact = cfg.outgoing.artifacts.first()
         artifact.type == 'tar'
         artifact.classifier == 'foo'
+    }
+
+    def "generateSbom adds a save + sbom task and an sbom-elements consumable without an archive variant"() {
+        given:
+        project.container { images { foo { tags = ['example/foo:1.0']; generateSbom = true } } }
+
+        when:
+        evaluate()
+
+        then: 'the tar is produced (for scanning) and an sbom task is registered'
+        project.tasks.findByName('saveFooImage') != null
+        project.tasks.findByName('generateFooImageSbom') != null
+
+        and: 'the sbom consumable carries imageType=sbom and the sbom format'
+        def cfg = project.configurations.getByName('fooSbomElements')
+        cfg.canBeConsumed && !cfg.canBeResolved
+        cfg.attributes.getAttribute(ArtifactsAttributes.CLASSIFIER) == 'foo-sbom'
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.IMAGE_TYPE_KEY)) ==
+                ContainerAttributes.IMAGE_TYPE_SBOM
+        cfg.attributes.getAttribute(ArtifactsAttributes.freeAttribute(ContainerAttributes.SBOM_FORMAT_KEY)) ==
+                ContainerAttributes.SBOM_FORMAT_CYCLONEDX
+
+        and: 'the outgoing artifact is the sbom document (json) classified <image>-sbom'
+        def artifact = cfg.outgoing.artifacts.first()
+        artifact.type == 'json'
+        artifact.classifier == 'foo-sbom'
+
+        and: 'no archive variant is published when createArchive is off'
+        project.configurations.findByName('fooArchiveElements') == null
+    }
+
+    def "generateSbom and createArchive share a single save task and publish both variants"() {
+        given:
+        project.container { images { foo { tags = ['example/foo:1.0']; createArchive = true; generateSbom = true } } }
+
+        when:
+        evaluate()
+
+        then: 'one save task feeds both the archive and the sbom variant'
+        project.tasks.withType(io.github.nhwalker.container.gradle.tasks.ContainerSaveTask)
+                .findAll { it.name == 'saveFooImage' }.size() == 1
+        project.configurations.getByName('fooArchiveElements') != null
+        project.configurations.getByName('fooSbomElements') != null
     }
 
     def "from(project) creates a base-image bucket and a reference-requesting resolvable"() {
